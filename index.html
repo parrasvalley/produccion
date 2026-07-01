@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="version" content="20260623000104">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Produccion | Parras Valley</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:#08120a;color:#f0ede8;}::-webkit-scrollbar{width:22px;}::-webkit-scrollbar-track{background:rgba(255,255,255,0.04);}::-webkit-scrollbar-thumb{background:rgba(74,222,128,0.5);border-radius:11px;border:5px solid transparent;background-clip:padding-box;}::-webkit-scrollbar-thumb:hover{background:rgba(74,222,128,0.7);background-clip:padding-box;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+
+var PRODUCTOS = ["Persa","Slicer","Europeo","Morron","Minibel"];
+var RANCHOS = ["PVT","Cordillera","Forrajera"];
+var PRODUCTO_RANCHOS = {
+  Persa:   ["PVT","Cordillera","Forrajera"],
+  Slicer:  ["PVT","Cordillera"],
+  Europeo: ["Cordillera"],
+  Morron:  ["Cordillera","Forrajera"],
+  Minibel: ["Cordillera","Forrajera"]
+};
+function ranchosDeProducto(p){
+  return PRODUCTO_RANCHOS[p]||RANCHOS;
+}
+var LINEAS_PROC = ["Persa","Slicer","Europeo","Morron","Minibel"];
+var DIAS_ALARMA = 3;
+var FB_URL = "https://parrasvalley-default-rtdb.firebaseio.com";
+var PROD_KEY = "produccion-v1";
+var HIST_KEY = "produccion-hist-v1";
+var PED_KEY  = "pedidos-v1";
+
+var CLIENTES = {
+  Persa:   ["Sin cliente","Mama Mia","Lakeway","DQP","Wholesum","4 Earth","Perfresh","Nature Sweet","Pero Family","Produce Team","Custom Pack","Lipman","King Harvest"],
+  Slicer:  ["Sin cliente","Mama Mia","Lakeway","DQP","Wholesum","4 Earth","Perfresh","Nature Sweet","Pero Family","Produce Team","Custom Pack","Lipman","King Harvest"],
+  Europeo: ["Sin cliente","Mama Mia","Lakeway","DQP","Wholesum","4 Earth","Perfresh","Nature Sweet","Pero Family","Produce Team","Custom Pack","Lipman","Farmers Best"],
+  Morron:  ["Sin cliente","Wholesum","Pero Family","Perfresh","Nature Sweet"],
+  Minibel: ["Sin cliente","Nature Sweet","Pero Family","Perfresh","Wilson Produce","4 Earth","Pure Flavor"],
+};
+
+// Flujo: Presentacion -> Calidad -> SubCalidad (si aplica)
+var FLUJO_PERSA = [
+  { pct:"20lb",  cals:[{cal:"Primera",subs:["FCY","XF"]},{cal:"Segunda",subs:["ML","MS"]},{cal:"Tercera",subs:["Choice"]}] },
+  { pct:"12x1",  cals:[{cal:"Primera",subs:null},{cal:"Segunda",subs:null}] },
+  { pct:"8x2",   cals:[{cal:"Primera",subs:null},{cal:"Segunda",subs:null}] },
+];
+
+var FLUJO_OTROS = {
+  Slicer:  { cals:[{cal:"Super",subs:null},{cal:"Selecto",subs:null},{cal:"Large",subs:null},{cal:"Plain",subs:null}], pcts:["18ct","24ct","36ct","25lb","50lb"], extraPcts:{Lakeway:["62 piezas","Small"]} },
+  Europeo: { cals:[{cal:"Primera",subs:null},{cal:"Segunda",subs:null},{cal:"Bushel",subs:null}], pcts:["12ct","24ct","1/9 bushel"], tams:{"12ct":["Small","Mediano"],"24ct":["Small","Mediano"]} },
+  Morron:  { cals:[{cal:"Primera",subs:["Small","Large","Extra Large","Jumbo"]},{cal:"Choice",subs:null},{cal:"Tercera",subs:null}], pcts:{"Primera":["25lb","11lb","12x2"],"Choice":["1/9 bushel"],"Tercera":["25lb"]} },
+  Minibel: { cals:[{cal:"Primera",subs:null},{cal:"Segunda",subs:null}], pcts:{"Primera":["12x1","12x8oz","25lb","11lb"],"Segunda":["10lb","15lb","18lb","20lb"]} },
+};
+
+var COLORES = {Persa:"#22c55e",Slicer:"#3b82f6",Europeo:"#a78bfa",Morron:"#f59e0b",Minibel:"#f43f5e"};
+
+async function fbGet(key){
+  try{
+    var r = await fetch(FB_URL+"/"+key+".json");
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){
+    try{ var v=localStorage.getItem(key); return v?JSON.parse(v):null; }catch(e2){ return null; }
+  }
+}
+async function fbSet(key,value){
+  try{ await fetch(FB_URL+"/"+key+".json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(value)}); }catch(e){}
+  try{ localStorage.setItem(key,JSON.stringify(value)); }catch(e){}
+}
+
+function hoy(){
+  return new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"2-digit",year:"numeric"});
+}
+function horaActual(){
+  var n=new Date();
+  return n.getHours().toString().padStart(2,"0")+":"+n.getMinutes().toString().padStart(2,"0");
+}
+function diasDesde(fecha){
+  try{
+    var parts=fecha.split("/"); var d=parseInt(parts[0]); var m=parseInt(parts[1]); var y=parseInt(parts[2]);
+    return Math.floor((new Date()-new Date(y,m-1,d))/86400000);
+  }catch(e){ return 0; }
+}
+function initDatos(){
+  var o={};
+  PRODUCTOS.forEach(function(p){ o[p]={registros:[],inventario:[]}; });
+  return o;
+}
+
+function initForm(prod){
+  return {producto:prod||"Persa",presentacion:"",calidad:"",subcalidad:"",tamano:"",cliente:"",rancho:ranchosDeProducto(prod||"Persa")[0],malla:"",linea:"Persa",cajas:"",hora:horaActual()};
+}
+
+function MiniPedido(props){
+  var ped=props.ped; var reg=props.reg; var col=props.col;
+  var cajasP=reg.filter(function(r){return r.cliente===ped.cliente;}).reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+  var total=parseInt(ped.cajas)||1;
+  var pct=Math.min(100,Math.round(cajasP/total*100));
+  return (
+    <div style={{marginTop:8}}>
+      <div style={{fontSize:11,color:"#8899aa",marginBottom:3}}>{ped.cliente} - {ped.cajas} cajas</div>
+      <div style={{height:6,background:"rgba(255,255,255,0.07)",borderRadius:3,overflow:"hidden",marginBottom:2}}>
+        <div style={{height:"100%",width:pct+"%",background:pct>=100?"#22c55e":col,borderRadius:3}}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:8}}>
+        <span style={{color:"#22c55e"}}>{cajasP} ({pct}%)</span>
+        <span style={{color:"#ef4444"}}>Faltan {Math.max(0,total-cajasP)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ResumenPct(props){
+  var registros=props.registros; var col=props.col;
+  var porPct={};
+  registros.forEach(function(r){
+    var k=r.presentacion||(r.calidad||"");
+    porPct[k]=(porPct[k]||0)+(parseInt(r.cajas)||0);
+  });
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+      {Object.keys(porPct).map(function(k){
+        return (
+          <div key={k} style={{background:col+"18",border:"1px solid "+col+"33",borderRadius:6,padding:"4px 8px",textAlign:"center"}}>
+            <div style={{fontSize:14,fontWeight:900,color:col,fontFamily:"Georgia,serif"}}>{porPct[k]}</div>
+            <div style={{fontSize:11,color:"#8899aa"}}>{k}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function InvPorFecha(props){
+  var inventario=props.inventario; var diasDesde=props.diasDesde; var DIAS_ALARMA=props.DIAS_ALARMA;
+  var col=props.col; var setModalBaja=props.setModalBaja;
+  var modoSeleccionInv=props.modoSeleccionInv; var seleccionadosInv=props.seleccionadosInv; var setSeleccionadosInv=props.setSeleccionadosInv;
+  var fechas=inventario.reduce(function(arr,r){
+    var f=r.fechaInventario||r.fecha||"Sin fecha";
+    if(arr.indexOf(f)===-1) arr.push(f);
+    return arr;
+  },[]).sort(function(a,b){ return diasDesde(b)-diasDesde(a); });
+  return (
+    <div>
+      {fechas.map(function(fecha){
+        var items=inventario.filter(function(r){return (r.fechaInventario||r.fecha||"Sin fecha")===fecha;});
+        var dias=diasDesde(fecha);
+        var alarmaGrupo=dias>=DIAS_ALARMA;
+        var totalFecha=items.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+        return (
+          <div key={fecha} style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 8px",background:alarmaGrupo?"rgba(239,68,68,0.12)":"rgba(255,255,255,0.05)",border:"1px solid "+(alarmaGrupo?"rgba(239,68,68,0.4)":"rgba(255,255,255,0.1)"),borderRadius:6,marginBottom:6}}>
+              <div>
+                <span style={{fontSize:11,fontWeight:700,color:alarmaGrupo?"#ef4444":"#ffffff"}}>{fecha}</span>
+                <span style={{fontSize:12,color:"#8899aa",marginLeft:6}}>({dias} dia{dias!==1?"s":""})</span>
+                {alarmaGrupo&&<span style={{marginLeft:6,fontSize:12,color:"#ef4444",fontWeight:700}}>SACAR YA</span>}
+              </div>
+              <span style={{fontSize:12,fontWeight:700,color:alarmaGrupo?"#ef4444":col,fontFamily:"Georgia,serif"}}>{totalFecha} cajas</span>
+            </div>
+            {items.map(function(r){
+              var alarma=dias>=DIAS_ALARMA;
+              return (
+                <div key={r.id} onClick={function(){if(!modoSeleccionInv)return; var idx=seleccionadosInv.indexOf(r.id); if(idx>=0){setSeleccionadosInv(seleccionadosInv.filter(function(x){return x!==r.id;}));}else{setSeleccionadosInv(seleccionadosInv.concat([r.id]));};}} style={{background:seleccionadosInv.indexOf(r.id)>=0?"rgba(245,158,11,0.1)":"rgba(0,0,0,0.2)",border:"1px solid "+(seleccionadosInv.indexOf(r.id)>=0?"rgba(245,158,11,0.4)":alarma?"rgba(239,68,68,0.3)":"rgba(255,255,255,0.06)"),borderRadius:7,padding:"7px 10px",marginBottom:4,marginLeft:8,cursor:modoSeleccionInv?"pointer":"default",display:"flex",alignItems:"center",gap:8}}>
+                  {modoSeleccionInv&&(
+                    <div style={{width:18,height:18,borderRadius:4,border:"2px solid "+(seleccionadosInv.indexOf(r.id)>=0?"#f59e0b":"rgba(255,255,255,0.2)"),background:seleccionadosInv.indexOf(r.id)>=0?"#f59e0b":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {seleccionadosInv.indexOf(r.id)>=0&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>v</span>}
+                    </div>
+                  )}
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,fontWeight:700,color:alarma?"#ef4444":"#ffffff"}}>{r.calidad}{r.subcalidad?" / "+r.subcalidad:""}{r.presentacion?" - "+r.presentacion:""}</div>
+                    <div style={{fontSize:13,color:"#b0bec5"}}>{r.cliente||"Sin cliente"}</div>
+                    <div style={{fontSize:12,color:"#8899aa"}}>{r.rancho} . M{r.malla}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{fontSize:18,fontWeight:900,color:alarma?"#ef4444":col,fontFamily:"Georgia,serif"}}>{r.cajas}</div>
+                    {!modoSeleccionInv&&<button onClick={function(){setModalBaja({itemId:r.id,tipo:"inv"});}} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:5,padding:"3px 7px",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Baja</button>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PedsCerrados(props){
+  var pedidosCerrados=props.pedidosCerrados; var prod=props.prod; var registros=props.registros;
+  var col=props.col; var setPedidosCerrados=props.setPedidosCerrados; var fbSet=props.fbSet; var PED_CERR_KEY=props.PED_CERR_KEY;
+  var pedsCerr=Array.isArray(pedidosCerrados[prod])?pedidosCerrados[prod]:[];
+  if(!pedsCerr.length) return <div style={{textAlign:"center",padding:30,color:"#8899aa",fontSize:12}}>Sin pedidos cerrados</div>;
+  return (
+    <div>
+      {pedsCerr.map(function(ped){
+        var cajasHechas=registros.filter(function(r){return r.cliente===ped.cliente&&(!ped.presentacion||r.presentacion===ped.presentacion);}).reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+        var pct=Math.min(100,Math.round(cajasHechas/(parseInt(ped.cajas)||1)*100));
+        return (
+          <div key={ped.id} style={{background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#ffffff"}}>{ped.cliente}</div>
+              <div style={{fontSize:12,color:"#8899aa"}}>{ped.fechaCierre}</div>
+            </div>
+            <div style={{fontSize:13,color:"#b0bec5",marginBottom:6}}>{ped.presentacion} - {ped.cajas} cajas</div>
+            <div style={{height:10,background:"rgba(255,255,255,0.07)",borderRadius:5,overflow:"hidden",marginBottom:4}}>
+              <div style={{height:"100%",width:pct+"%",background:pct>=100?"#22c55e":col,borderRadius:5}}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+              <span style={{color:"#22c55e"}}>{cajasHechas} cajas ({pct}%)</span>
+              <span style={{color:pct>=100?"#22c55e":"#ef4444"}}>{pct>=100?"Completado":"Cerrado sin terminar"}</span>
+            </div>
+          </div>
+        );
+      })}
+      <button onClick={async function(){
+        var pc2={}; Object.keys(pedidosCerrados).forEach(function(k){pc2[k]=pedidosCerrados[k];}); pc2[prod]=[];
+        setPedidosCerrados(pc2); await fbSet(PED_CERR_KEY,pc2);
+      }} style={{width:"100%",padding:"8px",marginTop:8,background:"transparent",border:"1px solid rgba(239,68,68,0.3)",borderRadius:6,color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar pedidos cerrados</button>
+    </div>
+  );
+}
+
+function App(){
+  var stateHist = useState(false); var vistaHist=stateHist[0]; var setVistaHist=stateHist[1];
+  var stateProd = useState(null); var prod=stateProd[0]; var setProd=stateProd[1];
+  var stateDatos = useState(initDatos()); var datos=stateDatos[0]; var setDatos=stateDatos[1];
+  var stateHist2 = useState([]); var historial=stateHist2[0]; var setHistorial=stateHist2[1];
+  var stateVistaAcum = useState(false); var vistaAcum=stateVistaAcum[0]; var setVistaAcum=stateVistaAcum[1];
+  var stateFFecha = useState(""); var filtroFecha=stateFFecha[0]; var setFiltroFecha=stateFFecha[1];
+  var stateFCliHist = useState(""); var filtroClienteHist=stateFCliHist[0]; var setFiltroClienteHist=stateFCliHist[1];
+  var stateFCliAcum = useState(""); var filtroClienteAcum=stateFCliAcum[0]; var setFiltroClienteAcum=stateFCliAcum[1];
+  var statePed = useState({}); var pedidos=statePed[0]; var setPedidos=statePed[1];
+  var stateLoad = useState(true); var loading=stateLoad[0]; var setLoading=stateLoad[1];
+  var stateTab = useState("registro"); var tab=stateTab[0]; var setTab=stateTab[1];
+  var stateForm = useState(null); var form=stateForm[0]; var setForm=stateForm[1];
+  var stateBaja = useState(null); var modalBaja=stateBaja[0]; var setModalBaja=stateBaja[1];
+  var stateMot = useState("Reproceso"); var motivoBaja=stateMot[0]; var setMotivoBaja=stateMot[1];
+  var stateRep = useState(""); var presentacionReproceso=stateRep[0]; var setPresentacionReproceso=stateRep[1];
+  var stateMP = useState(false); var modalPedido=stateMP[0]; var setModalPedido=stateMP[1];
+  var stateFP = useState(null); var formPedido=stateFP[0]; var setFormPedido=stateFP[1];
+  var stateCC = useState(false); var confirmCerrar=stateCC[0]; var setConfirmCerrar=stateCC[1];
+  var stateCBH = useState(false); var confirmBorrarHist=stateCBH[0]; var setConfirmBorrarHist=stateCBH[1];
+  var stateReset = useState(false); var confirmReset=stateReset[0]; var setConfirmReset=stateReset[1];
+  var stateAuth = useState(false); var autenticado=stateAuth[0]; var setAutenticado=stateAuth[1];
+  var stateMPin = useState(false); var modalPin=stateMPin[0]; var setModalPin=stateMPin[1];
+  var statePinI = useState(""); var pinInput=statePinI[0]; var setPinInput=statePinI[1];
+  var statePinE = useState(false); var pinError=statePinE[0]; var setPinError=statePinE[1];
+  var stateAccPend = useState(null); var accionPendiente=stateAccPend[0]; var setAccionPendiente=stateAccPend[1];
+  var stateCerrarPed = useState(null); var confirmCerrarPed=stateCerrarPed[0]; var setConfirmCerrarPed=stateCerrarPed[1];
+  var stateErrForm = useState([]); var erroresForm=stateErrForm[0]; var setErroresForm=stateErrForm[1];
+  var stateModoSel = useState(false); var modoSeleccion=stateModoSel[0]; var setModoSeleccion=stateModoSel[1];
+  var stateSeleccion = useState([]); var seleccionados=stateSeleccion[0]; var setSeleccionados=stateSeleccion[1];
+  var stateModalBajaMulti = useState(false); var modalBajaMulti=stateModalBajaMulti[0]; var setModalBajaMulti=stateModalBajaMulti[1];
+  var stateMotivoBajaMulti = useState("Merma"); var motivoBajaMulti=stateMotivoBajaMulti[0]; var setMotivoBajaMulti=stateMotivoBajaMulti[1];
+  var stateRepMulti = useState(""); var presentacionReprocesoMulti=stateRepMulti[0]; var setPresentacionReprocesoMulti=stateRepMulti[1];
+  var stateModoSelInv = useState(false); var modoSeleccionInv=stateModoSelInv[0]; var setModoSeleccionInv=stateModoSelInv[1];
+  var stateSelInv = useState([]); var seleccionadosInv=stateSelInv[0]; var setSeleccionadosInv=stateSelInv[1];
+  var stateModalBajaInv = useState(false); var modalBajaInv=stateModalBajaInv[0]; var setModalBajaInv=stateModalBajaInv[1];
+  var stateMotivoBajaInv = useState("Merma"); var motivoBajaInv=stateMotivoBajaInv[0]; var setMotivoBajaInv=stateMotivoBajaInv[1];
+  var stateRepInv = useState(""); var presentacionReprocesoInv=stateRepInv[0]; var setPresentacionReprocesoInv=stateRepInv[1];
+  var statePedCerrados = useState({}); var pedidosCerrados=statePedCerrados[0]; var setPedidosCerrados=statePedCerrados[1];
+  var PED_CERR_KEY="pedidos-cerrados-v1";
+var PIN_PROD = "9876";
+  var stateFC = useState(""); var filtroCliente=stateFC[0]; var setFiltroCliente=stateFC[1];
+  var stateEditReg = useState(null); var editReg=stateEditReg[0]; var setEditReg=stateEditReg[1];
+  var stateFR = useState(""); var filtroRancho=stateFR[0]; var setFiltroRancho=stateFR[1];
+  var stateFM = useState(""); var filtroMalla=stateFM[0]; var setFiltroMalla=stateFM[1];
+
+  var darBajaMultipleInventario = async function(producto){
+    if(!seleccionadosInv.length) return;
+    var nuevo2={}; Object.keys(datos).forEach(function(k){nuevo2[k]=datos[k];});
+    var linea2={
+      registros:(datos[producto]&&datos[producto].registros)||[],
+      inventario:(datos[producto]&&datos[producto].inventario)||[]
+    };
+    // Si es reproceso agregar nuevos items
+    if(motivoBajaInv==="Reproceso"&&presentacionReprocesoInv){
+      seleccionadosInv.forEach(function(id){
+        var item=linea2.inventario.filter(function(r){return r.id===id;})[0];
+        if(item){
+          var repro={}; Object.keys(item).forEach(function(k){repro[k]=item[k];});
+          repro.id=Date.now()+Math.random(); repro.presentacion=presentacionReprocesoInv;
+          repro.fechaInventario=hoy(); repro.esReproceso=true;
+          linea2.inventario=[repro].concat(linea2.inventario);
+        }
+      });
+    }
+    // Quitar los seleccionados del inventario
+    linea2.inventario=linea2.inventario.filter(function(r){return seleccionadosInv.indexOf(r.id)===-1;});
+    nuevo2[producto]=linea2;
+    await guardar(nuevo2);
+    setSeleccionadosInv([]); setModoSeleccionInv(false); setModalBajaInv(false);
+    setMotivoBajaInv("Merma"); setPresentacionReprocesoInv("");
+  };
+
+  var darBajaMultiple = async function(producto){
+    if(!seleccionados.length) return;
+    var nuevo2={}; Object.keys(datos).forEach(function(k){nuevo2[k]=datos[k];});
+    var linea2={
+      registros:(datos[producto]&&datos[producto].registros)||[],
+      inventario:(datos[producto]&&datos[producto].inventario)||[]
+    };
+    // Marcar registros seleccionados como bajados
+    linea2.registros=linea2.registros.map(function(r){
+      if(seleccionados.indexOf(r.id)===-1) return r;
+      var n={}; Object.keys(r).forEach(function(k){n[k]=r[k];});
+      n.bajado=true; n.motivoBaja=motivoBajaMulti;
+      if(motivoBajaMulti==="Reproceso"&&presentacionReprocesoMulti) n.reprocesadoComo=presentacionReprocesoMulti;
+      return n;
+    });
+    // Si es reproceso, agregar al inventario con nueva presentacion
+    if(motivoBajaMulti==="Reproceso"&&presentacionReprocesoMulti){
+      seleccionados.forEach(function(id){
+        var item=linea2.registros.filter(function(r){return r.id===id;})[0];
+        if(item){
+          var repro={}; Object.keys(item).forEach(function(k){repro[k]=item[k];});
+          repro.id=Date.now()+Math.random(); repro.presentacion=presentacionReprocesoMulti;
+          repro.fechaInventario=hoy(); repro.esReproceso=true; repro.bajado=false;
+          linea2.inventario=[repro].concat(linea2.inventario);
+        }
+      });
+    }
+    nuevo2[producto]=linea2;
+    await guardar(nuevo2);
+    setSeleccionados([]); setModoSeleccion(false); setModalBajaMulti(false);
+    setMotivoBajaMulti("Merma"); setPresentacionReprocesoMulti("");
+  };
+
+  function requerirPin(accion){
+    if(autenticado){ accion(); return; }
+    setAccionPendiente(function(){ return accion; });
+    setPinInput(""); setPinError(false); setModalPin(true);
+  }
+  function confirmarPin(){
+    if(pinInput===PIN_PROD){
+      setAutenticado(true); setModalPin(false); setPinInput("");
+      if(accionPendiente){ accionPendiente(); setAccionPendiente(null); }
+    } else {
+      setPinError(true); setPinInput("");
+    }
+  }
+
+  var cargar = async function(){
+    try{
+      var d=await fbGet(PROD_KEY);
+      if(d&&typeof d==="object"){
+        var merged={}; 
+        PRODUCTOS.forEach(function(p){
+          merged[p]={
+            recibido:0,
+            registros:(d[p]&&d[p].registros)||[],
+            inventario:(d[p]&&d[p].inventario)||[],
+          };
+        });
+        setDatos(merged);
+      } else { setDatos(initDatos()); }
+    }catch(e){ setDatos(initDatos()); }
+    try{ var h=await fbGet(HIST_KEY); if(h&&Array.isArray(h)) setHistorial(h); }catch(e){}
+    try{ var p=await fbGet(PED_KEY); if(p&&typeof p==="object") setPedidos(p); }catch(e){}
+    try{ var pc=await fbGet("pedidos-cerrados-v1"); if(pc&&typeof pc==="object") setPedidosCerrados(pc); }catch(e){}
+    setLoading(false);
+  };
+
+  var guardar = async function(nuevo){
+    setDatos(nuevo);
+    await fbSet(PROD_KEY,nuevo);
+  };
+
+  useEffect(function(){ cargar(); },[]);
+  useEffect(function(){
+    var t=setInterval(cargar,30000);
+    return function(){ clearInterval(t); };
+  },[]);
+
+  var setF = function(k,v){ setForm(function(f){ var n={}; Object.keys(f).forEach(function(fk){n[fk]=f[fk];}); n[k]=v; return n; }); };
+
+  var registrar = async function(){
+    if(!form) return;
+    // Validacion completa
+    var errores=[];
+    if(!form.calidad) errores.push("Falta calidad");
+    if(!form.cajas||parseInt(form.cajas)<=0) errores.push("Falta numero de cajas");
+    if(!form.cliente) errores.push("Falta cliente");
+    if(!form.rancho) errores.push("Falta rancho");
+    if(!form.malla) errores.push("Falta malla");
+    if(form.producto==="Persa"){
+      if(!form.presentacion) errores.push("Falta presentacion");
+      // Sub-calidad requerida solo para 20lb
+      if(form.presentacion==="20lb"&&!form.subcalidad) errores.push("Falta sub-calidad (FCY/XF/Choice/ML/MS)");
+    } else if(form.producto==="Europeo"){
+      if(!form.presentacion) errores.push("Falta presentacion");
+      // Tamano requerido para 12ct y 24ct
+      if((form.presentacion==="12ct"||form.presentacion==="24ct")&&!form.tamano) errores.push("Falta tamano (Small/Mediano)");
+    } else {
+      if(!form.presentacion) errores.push("Falta presentacion");
+    }
+    if(errores.length>0){
+      setErroresForm(errores);
+      return;
+    }
+    setErroresForm([]);
+    var nuevo={id:Date.now(),fecha:hoy()};
+    Object.keys(form).forEach(function(k){nuevo[k]=form[k];});
+    nuevo.cajas=parseInt(form.cajas);
+    var nuevo2={}; Object.keys(datos).forEach(function(k){nuevo2[k]=datos[k];});
+    var regs=(datos[form.producto]&&datos[form.producto].registros)||[];
+    nuevo2[form.producto]={
+      registros:[nuevo].concat(regs),
+      inventario:(datos[form.producto]&&datos[form.producto].inventario)||[],
+    };
+    await guardar(nuevo2);
+    setForm(initForm(form.producto));
+  };
+
+  var darBaja = async function(){
+    if(!modalBaja) return;
+    var itemId=modalBaja.itemId; var tipo=modalBaja.tipo; var producto=modalBaja.producto;
+    var nuevo2={}; Object.keys(datos).forEach(function(k){nuevo2[k]=datos[k];});
+    var linea2={registros:(datos[producto]&&datos[producto].registros)||[],inventario:(datos[producto]&&datos[producto].inventario)||[]};
+    if(tipo==="reg"){
+      var item=linea2.registros.filter(function(r){return r.id===itemId;})[0];
+      // El registro SIEMPRE permanece para el conteo del dia
+      // Solo lo marcamos como "bajado" para que no aparezca en inventario
+      linea2.registros=linea2.registros.map(function(r){
+        if(r.id!==itemId) return r;
+        var n={}; Object.keys(r).forEach(function(k){n[k]=r[k];});
+        n.bajado=true; n.motivoBaja=motivoBaja;
+        if(motivoBaja==="Reproceso"&&presentacionReproceso) n.reprocesadoComo=presentacionReproceso;
+        return n;
+      });
+      // Si es reproceso, agregar nueva entrada al inventario
+      if(motivoBaja==="Reproceso"&&presentacionReproceso&&item){
+        var repro={}; Object.keys(item).forEach(function(k){repro[k]=item[k];});
+        repro.id=Date.now(); repro.presentacion=presentacionReproceso; repro.fechaInventario=hoy(); repro.esReproceso=true;
+        linea2.inventario=[repro].concat(linea2.inventario);
+      }
+    } else {
+      linea2.inventario=linea2.inventario.filter(function(r){return r.id!==itemId;});
+    }
+    nuevo2[producto]=linea2;
+    await guardar(nuevo2);
+    setModalBaja(null); setMotivoBaja("Reproceso"); setPresentacionReproceso("");
+  };
+
+  var cerrarDia = async function(){
+    if(!prod) return;
+    var datoProd=datos[prod]; var regs=(datoProd&&datoProd.registros)||[]; var invActual=(datoProd&&datoProd.inventario)||[];
+    var snap={id:Date.now(),fecha:hoy(),producto:prod,registros:regs,totalCajas:regs.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0)};
+    var nuevoHist=[snap].concat(historial).slice(0,300);
+    setHistorial(nuevoHist);
+    await fbSet(HIST_KEY,nuevoHist);
+    var nuevoInv=regs.map(function(r){var n={}; Object.keys(r).forEach(function(k){n[k]=r[k];}); n.fechaInventario=hoy(); return n;}).concat(invActual);
+    var nuevo2={}; Object.keys(datos).forEach(function(k){nuevo2[k]=datos[k];});
+    nuevo2[prod]={registros:[],inventario:nuevoInv};
+    await guardar(nuevo2);
+    setConfirmCerrar(false); setTab("inventario");
+  };
+
+  var inp = {width:"100%",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"7px 10px",background:"rgba(0,0,0,0.3)",color:"#ffffff",fontFamily:"system-ui",fontSize:13,outline:"none"};
+  var lbl = {fontSize:11,color:"#8899aa",textTransform:"uppercase",letterSpacing:1.5,marginBottom:3};
+
+  // -- HISTORIAL --------------------------------------------------------------
+  if(vistaHist){
+    return (
+      <React.Fragment>
+      <div style={{background:"#0d1a12",minHeight:"100vh",color:"#f0ede8",fontFamily:"system-ui"}}>
+        <div style={{maxWidth:600,margin:"0 auto",padding:"14px 12px 60px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,borderBottom:"1px solid rgba(255,255,255,0.07)",paddingBottom:10}}>
+            <button onClick={function(){setVistaHist(false);}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 10px",color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Volver</button>
+            <div style={{fontSize:16,fontWeight:900,color:"#ffffff",flex:1}}>HISTORIAL DE PRODUCCION</div>
+            <button onClick={function(){setVistaHist(false);setVistaAcum(true);}} style={{background:"rgba(167,139,250,0.12)",border:"1px solid rgba(167,139,250,0.4)",borderRadius:6,padding:"6px 12px",color:"#a78bfa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Ver Acumulado</button>
+          </div>
+
+          {/* Filtros */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
+            <div>
+              <div style={{fontSize:10,color:"#8899aa",marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>Filtrar por fecha</div>
+              <input type="text" placeholder="Ej: 14/06 o vacio=todas" value={filtroFecha} onChange={function(e){setFiltroFecha(e.target.value);}}
+                style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"7px 10px",color:"#ffffff",fontFamily:"system-ui",fontSize:13,outline:"none"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:"#8899aa",marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>Filtrar por cliente</div>
+              <input type="text" placeholder="Ej: Mama Mia o vacio=todos" value={filtroClienteHist} onChange={function(e){setFiltroClienteHist(e.target.value);}}
+                style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"7px 10px",color:"#ffffff",fontFamily:"system-ui",fontSize:13,outline:"none"}}/>
+            </div>
+          </div>
+
+          {!historial.length
+            ? <div style={{textAlign:"center",padding:40,color:"#8899aa"}}>Sin dias cerrados</div>
+            : historial.filter(function(h){
+                if(filtroFecha&&h.fecha.indexOf(filtroFecha)<0)return false;
+                if(filtroClienteHist){
+                  var tieneCliente=(h.registros||[]).some(function(r){return (r.cliente||"").toLowerCase().indexOf(filtroClienteHist.toLowerCase())>=0;});
+                  if(!tieneCliente)return false;
+                }
+                return true;
+              }).map(function(h){
+              var col=COLORES[h.producto]||"#b0bec5";
+
+              // Agrupar por rancho+malla -> presentacion -> calidad -> cajas
+              var porRancho={};
+              (h.registros||[]).forEach(function(r){
+                var rk=r.rancho+"/M"+r.malla;
+                if(!porRancho[rk]) porRancho[rk]={};
+                var pct=r.presentacion||"";
+                if(!porRancho[rk][pct]) porRancho[rk][pct]={primera:0,segunda:0,tercera:0,otra:0};
+                var cal=(r.calidad||"").toLowerCase();
+                var cajas=parseInt(r.cajas)||0;
+                if(cal==="primera") porRancho[rk][pct].primera+=cajas;
+                else if(cal==="segunda") porRancho[rk][pct].segunda+=cajas;
+                else if(cal==="tercera") porRancho[rk][pct].tercera+=cajas;
+                else porRancho[rk][pct].otra+=cajas;
+              });
+
+              // Por cliente
+              var porCliente={};
+              (h.registros||[]).forEach(function(r){
+                var c=r.cliente||"Sin cliente";
+                porCliente[c]=(porCliente[c]||0)+(parseInt(r.cajas)||0);
+              });
+
+              return (
+                <div key={h.id} style={{background:"rgba(0,0,0,0.3)",border:"1px solid "+col+"44",borderRadius:12,padding:"16px 18px",marginBottom:14}}>
+                  {/* Header */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
+                    <span style={{fontSize:20,fontWeight:900,color:col}}>{h.producto}</span>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:13,color:"#8899aa"}}>{h.fecha}</div>
+                      <div style={{fontSize:24,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif"}}>{h.totalCajas} cajas</div>
+                    </div>
+                  </div>
+
+                  {/* Reporte por rancho - tabla limpia */}
+                  <div style={{fontSize:11,color:"#8899aa",textTransform:"uppercase",letterSpacing:1.5,marginBottom:10,fontWeight:700}}>Reporte de empaque por rancho</div>
+                  {Object.keys(porRancho).map(function(rk){
+                    var pcts=porRancho[rk];
+                    return (
+                      <div key={rk} style={{marginBottom:12,background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"10px 12px"}}>
+                        <div style={{fontSize:14,fontWeight:700,color:col,marginBottom:8}}>{rk}</div>
+                        {/* Header tabla */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px",gap:4,marginBottom:6,paddingBottom:4,borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
+                          <div style={{fontSize:10,color:"#8899aa",fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Presentacion</div>
+                          <div style={{fontSize:10,color:"#22c55e",fontWeight:700,textTransform:"uppercase",letterSpacing:1,textAlign:"center"}}>Primera</div>
+                          <div style={{fontSize:10,color:"#f59e0b",fontWeight:700,textTransform:"uppercase",letterSpacing:1,textAlign:"center"}}>Segunda</div>
+                          <div style={{fontSize:10,color:"#94a3b8",fontWeight:700,textTransform:"uppercase",letterSpacing:1,textAlign:"center"}}>Tercera</div>
+                        </div>
+                        {/* Filas */}
+                        {Object.keys(pcts).filter(function(p){return p;}).map(function(pct){
+                          var d=pcts[pct];
+                          return (
+                            <div key={pct} style={{display:"grid",gridTemplateColumns:"1fr 90px 90px 90px",gap:4,padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+                              <div style={{fontSize:13,fontWeight:600,color:"#ffffff"}}>{pct}</div>
+                              <div style={{fontSize:15,fontWeight:700,color:d.primera>0?"#22c55e":"#4a5568",textAlign:"center",fontFamily:"Georgia,serif"}}>{d.primera>0?d.primera:"-"}</div>
+                              <div style={{fontSize:15,fontWeight:700,color:d.segunda>0?"#f59e0b":"#4a5568",textAlign:"center",fontFamily:"Georgia,serif"}}>{d.segunda>0?d.segunda:"-"}</div>
+                              <div style={{fontSize:15,fontWeight:700,color:d.tercera>0?"#94a3b8":"#4a5568",textAlign:"center",fontFamily:"Georgia,serif"}}>{d.tercera>0?d.tercera:d.otra>0?d.otra:"-"}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+
+                  {/* Por cliente */}
+                  <div style={{fontSize:11,color:"#8899aa",textTransform:"uppercase",letterSpacing:1.5,marginBottom:8,fontWeight:700,marginTop:4}}>Por cliente</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5}}>
+                    {Object.keys(porCliente).map(function(c){
+                      return (
+                        <div key={c} style={{display:"flex",justifyContent:"space-between",background:"rgba(255,255,255,0.03)",borderRadius:6,padding:"6px 10px"}}>
+                          <span style={{fontSize:12,color:"#b0bec5"}}>{c}</span>
+                          <span style={{fontSize:14,color:"#ffffff",fontWeight:700,fontFamily:"Georgia,serif"}}>{porCliente[c]}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          }
+          {/* Pedidos cerrados */}
+          {(function(){
+            var todosCerrados=[];
+            Object.keys(pedidosCerrados).forEach(function(p){
+              (pedidosCerrados[p]||[]).forEach(function(pc){todosCerrados.push(Object.assign({},pc,{producto:p}));});
+            });
+            todosCerrados.sort(function(a,b){return (b.fechaCierre||"").localeCompare(a.fechaCierre||"");});
+            var filtrados=todosCerrados.filter(function(pc){
+              if(filtroFecha&&(pc.fechaCierre||"").indexOf(filtroFecha)<0)return false;
+              if(filtroClienteHist&&(pc.cliente||"").toLowerCase().indexOf(filtroClienteHist.toLowerCase())<0)return false;
+              return true;
+            });
+            if(!todosCerrados.length)return null;
+            return (
+              <div style={{marginTop:20}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",paddingBottom:8}}>PEDIDOS CERRADOS ({filtrados.length})</div>
+                {!filtrados.length
+                  ? <div style={{textAlign:"center",padding:20,color:"#8899aa",fontSize:13}}>Sin pedidos cerrados con ese filtro</div>
+                  : filtrados.map(function(pc,i){
+                    var col2=COLORES[pc.producto]||"#b0bec5";
+                    return (
+                      <div key={i} style={{background:"rgba(255,255,255,0.03)",border:"1px solid "+col2+"33",borderRadius:9,padding:"10px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:700,color:col2}}>{pc.cliente} - {pc.producto}</div>
+                          <div style={{fontSize:11,color:"#8899aa"}}>{pc.fechaCierre} . {pc.presentacion}{pc.calidad?" / "+pc.calidad:""}</div>
+                        </div>
+                        <div style={{fontSize:18,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif"}}>{pc.cajas}</div>
+                      </div>
+                    );
+                  })
+                }
+              </div>
+            );
+          })()}
+
+          {historial.length>0&&(
+            confirmBorrarHist?(
+              <div style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:8,padding:"10px",marginTop:10}}>
+                <div style={{fontSize:12,color:"#ffffff",marginBottom:8}}>Borrar todo el historial?</div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={function(){setConfirmBorrarHist(false);}} style={{flex:1,padding:"7px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={async function(){setHistorial([]); await fbSet(HIST_KEY,[]); setConfirmBorrarHist(false);}} style={{flex:1,padding:"7px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar todo</button>
+                </div>
+              </div>
+            ):(
+              <button onClick={function(){setConfirmBorrarHist(true);}} style={{width:"100%",padding:"8px",marginTop:10,background:"transparent",border:"1px solid rgba(239,68,68,0.3)",borderRadius:6,color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar historial</button>
+            )
+          )}
+        </div>
+      </div>
+
+    {modalPin&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.92)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#0f1f14",border:"2px solid rgba(34,197,94,0.4)",borderRadius:16,padding:"28px 24px",maxWidth:300,width:"100%",textAlign:"center"}}>
+          <div style={{fontSize:18,fontWeight:900,color:"#f0ede8",marginBottom:6}}>Acceso de editor</div>
+          <div style={{fontSize:12,color:"#8899aa",marginBottom:20}}>Ingresa el PIN para registrar y modificar</div>
+          <input type="number" value={pinInput} onChange={function(e){setPinInput(e.target.value.slice(0,4));setPinError(false);}} placeholder="0000" style={{width:"100%",background:"rgba(0,0,0,0.5)",border:"2px solid "+(pinError?"#ef4444":"rgba(34,197,94,0.3)"),borderRadius:10,padding:"14px",color:"#22c55e",fontFamily:"monospace",fontSize:32,textAlign:"center",outline:"none",marginBottom:10}}/>
+          {pinError&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8,fontWeight:700}}>PIN incorrecto</div>}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button onClick={function(){setModalPin(false);setAccionPendiente(null);setPinInput("");}} style={{flex:1,padding:"12px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#8899aa",fontSize:13,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+            <button onClick={confirmarPin} style={{flex:1,padding:"12px",background:"rgba(34,197,94,0.2)",border:"1px solid rgba(34,197,94,0.5)",borderRadius:8,color:"#22c55e",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Entrar</button>
+          </div>
+        </div>
+      </div>
+    )}
+    <button onClick={function(){if(!autenticado){setModalPin(true);setPinInput("");setPinError(false);}else{setAutenticado(false);}}} style={{position:"fixed",bottom:16,right:16,zIndex:100,padding:"10px 18px",borderRadius:24,background:autenticado?"#166534":"#1e293b",color:autenticado?"#4ade80":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer",border:"2px solid "+(autenticado?"#22c55e":"#334155"),fontFamily:"system-ui",boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>{autenticado?"Editor":"Lector"}</button>
+      </React.Fragment>
+    );
+  }
+
+  if(vistaAcum){
+    // Agrupar TODO el historial por cliente, sumando producto/presentacion/calidad
+    var acumPorCliente={};
+    historial.forEach(function(h){
+      (h.registros||[]).forEach(function(r){
+        var c=r.cliente||"Sin cliente";
+        if(!acumPorCliente[c])acumPorCliente[c]={cliente:c,totalCajas:0,dias:[]};
+        var cajas=parseInt(r.cajas)||0;
+        acumPorCliente[c].totalCajas+=cajas;
+        acumPorCliente[c].dias.push({fecha:h.fecha,producto:h.producto,presentacion:r.presentacion||"",calidad:r.calidad||"",cajas:cajas});
+      });
+    });
+    var listaClientesAcum=Object.keys(acumPorCliente).sort(function(a,b){return acumPorCliente[b].totalCajas-acumPorCliente[a].totalCajas;});
+    var clienteSeleccionado=filtroClienteAcum?acumPorCliente[filtroClienteAcum]:null;
+
+    return (
+      <React.Fragment>
+      <div style={{background:"#0d1a12",minHeight:"100vh",color:"#f0ede8",fontFamily:"system-ui"}}>
+        <div style={{maxWidth:600,margin:"0 auto",padding:"14px 12px 60px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,borderBottom:"1px solid rgba(255,255,255,0.07)",paddingBottom:10}}>
+            <button onClick={function(){setVistaAcum(false);setVistaHist(true);}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 10px",color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Volver</button>
+            <div style={{fontSize:16,fontWeight:900,color:"#ffffff",flex:1}}>ACUMULADO DE TEMPORADA</div>
+          </div>
+
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:"#8899aa",marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>Filtrar por cliente</div>
+            <select value={filtroClienteAcum} onChange={function(e){setFiltroClienteAcum(e.target.value);}}
+              style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"8px 10px",color:"#ffffff",fontFamily:"system-ui",fontSize:14,outline:"none"}}>
+              <option value="">-- Todos los clientes --</option>
+              {listaClientesAcum.map(function(c){return <option key={c} value={c}>{c}</option>;})}
+            </select>
+          </div>
+
+          {!listaClientesAcum.length
+            ? <div style={{textAlign:"center",padding:40,color:"#8899aa"}}>Aun no hay historial acumulado</div>
+            : clienteSeleccionado
+              ? (
+                <div>
+                  <div style={{background:"rgba(167,139,250,0.1)",border:"2px solid rgba(167,139,250,0.4)",borderRadius:12,padding:"18px",marginBottom:14,textAlign:"center"}}>
+                    <div style={{fontSize:14,color:"#c4b5fd",fontWeight:700}}>{clienteSeleccionado.cliente}</div>
+                    <div style={{fontSize:36,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif"}}>{clienteSeleccionado.totalCajas} cajas</div>
+                    <div style={{fontSize:12,color:"#8899aa"}}>en total esta temporada</div>
+                  </div>
+                  <div style={{fontSize:11,color:"#8899aa",textTransform:"uppercase",letterSpacing:1.5,marginBottom:8,fontWeight:700}}>Detalle por dia</div>
+                  {clienteSeleccionado.dias.map(function(d,i){
+                    var col2=COLORES[d.producto]||"#b0bec5";
+                    return (
+                      <div key={i} style={{background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"10px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:700,color:col2}}>{d.fecha} - {d.producto}</div>
+                          <div style={{fontSize:11,color:"#8899aa"}}>{d.presentacion}{d.calidad?" / "+d.calidad:""}</div>
+                        </div>
+                        <div style={{fontSize:18,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif"}}>{d.cajas}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+              : listaClientesAcum.map(function(c){
+                var a=acumPorCliente[c];
+                return (
+                  <div key={c} onClick={function(){setFiltroClienteAcum(c);}} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"12px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                    <div style={{fontSize:15,fontWeight:700,color:"#ffffff"}}>{c}</div>
+                    <div style={{fontSize:22,fontWeight:900,color:"#a78bfa",fontFamily:"Georgia,serif"}}>{a.totalCajas} cajas</div>
+                  </div>
+                );
+              })
+          }
+        </div>
+      </div>
+      <button onClick={function(){if(!autenticado){setModalPin(true);setPinInput("");setPinError(false);}else{setAutenticado(false);}}} style={{position:"fixed",bottom:16,right:16,zIndex:100,padding:"10px 18px",borderRadius:24,background:autenticado?"#166534":"#1e293b",color:autenticado?"#4ade80":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer",border:"2px solid "+(autenticado?"#22c55e":"#334155"),fontFamily:"system-ui",boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>{autenticado?"Editor":"Lector"}</button>
+      </React.Fragment>
+    );
+  }
+
+  // -- DETALLE PRODUCTO -------------------------------------------------------
+  if(prod){
+    var col=COLORES[prod]||"#b0bec5";
+    var datoProd=datos[prod]||{registros:[],inventario:[]};
+    var registros=(datoProd.registros)||[];
+    var inventario=(datoProd.inventario)||[];
+    var clts=CLIENTES[prod]||[];
+    var esPersa=prod==="Persa";
+    var pedidosActivos=Array.isArray(pedidos[prod])?pedidos[prod]:[];
+    var totalHoy=registros.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+
+    // Opciones del formulario segun producto
+    var persaPcts=esPersa?FLUJO_PERSA.map(function(x){return x.pct;}):[];
+    var persaPctSel=esPersa&&form?FLUJO_PERSA.filter(function(x){return x.pct===form.presentacion;})[0]:null;
+    var persaCalOpts=persaPctSel?persaPctSel.cals:[];
+    var persaCalSel=persaCalOpts.filter(function(c){return c.cal===(form?form.calidad:"");})[0]||null;
+    var persaSubOpts=persaCalSel&&persaCalSel.subs?persaCalSel.subs:[];
+
+    var otroFlujo=!esPersa?FLUJO_OTROS[prod]:null;
+    var otroCalOpts=otroFlujo?otroFlujo.cals:[];
+    var otroCalSel=otroCalOpts.filter(function(c){return c.cal===(form?form.calidad:"");})[0]||null;
+    var otroPcts=[];
+    if(otroFlujo&&otroFlujo.pcts){
+      if(Array.isArray(otroFlujo.pcts)){
+        otroPcts=otroFlujo.pcts;
+        if(prod==="Slicer"&&form&&form.cliente==="Lakeway"){
+          otroPcts=otroPcts.concat(["62 piezas","Small"]);
+        }
+      } else if(form&&form.calidad){
+        otroPcts=otroFlujo.pcts[form.calidad]||[];
+      }
+    }
+    var otroTams=[];
+    if(otroFlujo&&otroFlujo.tams&&form&&form.presentacion){
+      otroTams=otroFlujo.tams[form.presentacion]||[];
+    }
+
+    // Avance pedidos
+    var avancesPedidos=pedidosActivos.map(function(ped){
+      var cajasPed=registros.filter(function(r){return r.cliente===ped.cliente&&(!ped.calidad||r.calidad===ped.calidad)&&(!ped.presentacion||r.presentacion===ped.presentacion||r.subcalidad===ped.presentacion);}).reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+      var total=parseInt(ped.cajas)||1;
+      var pct=Math.min(100,Math.round(cajasPed/total*100));
+      return {ped:ped,cajasPed:cajasPed,pct:pct,falta:Math.max(0,total-cajasPed)};
+    });
+
+    // Filtros
+    var regFiltrados=registros.filter(function(r){
+      return !r.bajado&&(!filtroCliente||r.cliente===filtroCliente)&&(!filtroRancho||r.rancho===filtroRancho)&&(!filtroMalla||r.malla===filtroMalla);
+    });
+    var regsActivos=registros.filter(function(r){return !r.bajado;});
+    var regsBajados=registros.filter(function(r){return r.bajado;});
+    var clientesReg=regFiltrados.reduce(function(arr,r){
+      if(arr.indexOf(r.cliente)===-1) arr.push(r.cliente);
+      return arr;
+    },[]);
+
+    return (
+      <React.Fragment>
+      <div style={{background:"#0d1a12",minHeight:"100vh",color:"#f0ede8",fontFamily:"system-ui"}}>
+        <div style={{maxWidth:600,margin:"0 auto",padding:"10px 12px 60px"}}>
+
+          {/* Header */}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,borderBottom:"1px solid rgba(255,255,255,0.07)",paddingBottom:10}}>
+            <button onClick={function(){setProd(null);}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 10px",color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Volver</button>
+            <div style={{fontSize:26,fontWeight:900,color:col}}>{prod}</div>
+            <div style={{marginLeft:"auto",display:"flex",gap:5}}>
+              <button onClick={function(){requerirPin(function(){setFormPedido({producto:prod,cliente:"",calidad:"",subcalidad:"",presentacion:"",cajas:""});setModalPedido(true);});}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"5px 8px",color:"#b0bec5",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Pedido</button>
+              <button onClick={function(){requerirPin(function(){setConfirmCerrar(true);});}} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:6,padding:"5px 8px",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Cerrar dia</button>
+            </div>
+          </div>
+
+          {/* Total y resumen por presentacion */}
+          <div style={{background:"rgba(0,0,0,0.3)",border:"1px solid "+col+"33",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:totalHoy>0?8:0}}>
+              <div style={{fontSize:12,color:"#b0bec5",textTransform:"uppercase",letterSpacing:1}}>Total empacado hoy</div>
+              <div style={{fontSize:42,fontWeight:900,color:col,fontFamily:"Georgia,serif"}}>{totalHoy} cajas</div>
+            </div>
+            {totalHoy>0&&<ResumenPct registros={registros} col={col}/>}
+          </div>
+
+          {/* Pedidos activos */}
+          {avancesPedidos.map(function(ap){
+            var ped=ap.ped;
+            return (
+              <div key={ped.id||ped.cliente} style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:8,padding:"10px 12px",marginBottom:8}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <div>
+                    <div style={{fontSize:12,color:"#8899aa",textTransform:"uppercase",letterSpacing:1}}>Pedido activo</div>
+                    <div style={{fontSize:12,fontWeight:700,color:"#ffffff"}}>{ped.cliente}{ped.calidad?" . "+ped.calidad:""}{ped.presentacion?" . "+ped.presentacion:""}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <div style={{fontSize:11,color:"#8899aa"}}>{ped.cajas} cajas</div>
+                    <button onClick={function(){setConfirmCerrarPed(ped);}} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:5,padding:"3px 8px",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Cerrar pedido</button>
+                  </div>
+                </div>
+                <div style={{height:28,background:"rgba(239,68,68,0.15)",borderRadius:8,overflow:"hidden",display:"flex",border:"1px solid rgba(255,255,255,0.07)"}}>
+                  <div style={{height:"100%",width:ap.pct+"%",background:ap.pct>=100?"#22c55e":col,borderRadius:"8px 0 0 8px",transition:"width 0.4s",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    {ap.pct>8&&<span style={{fontSize:13,fontWeight:700,color:"#000",whiteSpace:"nowrap",padding:"0 6px"}}>{ap.cajasPed} cjs ({ap.pct}%)</span>}
+                  </div>
+                  <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    {ap.falta>0&&<span style={{fontSize:13,fontWeight:700,color:"rgba(239,68,68,0.7)",whiteSpace:"nowrap",padding:"0 6px"}}>Faltan {ap.falta} ({100-ap.pct}%)</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Tabs */}
+          <div style={{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.07)",marginBottom:12}}>
+            {["registro","bajas","inventario","cerrados"].map(function(id){
+              var pedsCerr=Array.isArray(pedidosCerrados[prod])?pedidosCerrados[prod]:[];
+              var regsActivos=registros.filter(function(r){return !r.bajado;});
+              var regsBajados=registros.filter(function(r){return r.bajado;});
+              var lb=id==="registro"?"Registro"+(regsActivos.length>0?" ("+regsActivos.length+")":""):
+                id==="bajas"?"Bajas"+(regsBajados.length>0?" ("+regsBajados.length+")":""):
+                id==="inventario"?"Inv."+(inventario.length>0?" ("+inventario.length+")":""):
+                "Pedidos"+(pedsCerr.length>0?" ("+pedsCerr.length+")":"");
+              return (
+                <button key={id} onClick={function(){setTab(id);}} style={{flex:1,padding:"7px",border:"none",background:"transparent",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer",color:tab===id?col:"#8899aa",textTransform:"uppercase",borderBottom:tab===id?"2px solid "+col:"2px solid transparent"}}>{lb}</button>
+              );
+            })}
+          </div>
+
+          {/* Registro */}
+          {tab==="registro"&&(
+            <div>
+              {/* Botones de accion */}
+              <div style={{display:"flex",gap:6,marginBottom:10}}>
+                {!modoSeleccion
+                  ? <button onClick={function(){requerirPin(function(){setForm(initForm(prod));});}} style={{flex:2,padding:"10px",background:col+"22",border:"1px solid "+col+"55",borderRadius:8,color:col,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>+ Registrar cajas</button>
+                  : <button onClick={function(){setModalBajaMulti(true);}} disabled={seleccionados.length===0} style={{flex:2,padding:"10px",background:seleccionados.length>0?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.04)",border:"1px solid "+(seleccionados.length>0?"rgba(239,68,68,0.5)":"rgba(255,255,255,0.1)"),borderRadius:8,color:seleccionados.length>0?"#ef4444":"#8899aa",fontSize:12,fontWeight:700,cursor:seleccionados.length>0?"pointer":"default",fontFamily:"system-ui"}}>Dar de baja ({seleccionados.length})</button>
+                }
+                <button onClick={function(){requerirPin(function(){setModoSeleccion(!modoSeleccion); setSeleccionados([]);});}} style={{flex:1,padding:"10px",background:modoSeleccion?"rgba(245,158,11,0.15)":"rgba(255,255,255,0.05)",border:"1px solid "+(modoSeleccion?"rgba(245,158,11,0.4)":"rgba(255,255,255,0.1)"),borderRadius:8,color:modoSeleccion?"#f59e0b":"#b0bec5",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>{modoSeleccion?"Cancelar":"Seleccionar"}</button>
+              </div>
+              {!form
+                ? null
+                : (
+                  <div style={{background:"rgba(0,0,0,0.3)",border:"1px solid "+col+"44",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+                    {/* Persa: Presentacion primero */}
+                    {esPersa&&(
+                      <div style={{marginBottom:6}}>
+                        <div style={lbl}>Presentacion</div>
+                        <select style={inp} value={form.presentacion} onChange={function(e){setForm(function(f){return {producto:f.producto,presentacion:e.target.value,calidad:"",subcalidad:"",tamano:"",cliente:f.cliente,rancho:f.rancho,malla:f.malla,linea:f.linea,cajas:f.cajas,hora:f.hora};});}}>
+                          <option value="">-- Seleccionar --</option>
+                          {persaPcts.map(function(p){return <option key={p}>{p}</option>;})}
+                        </select>
+                      </div>
+                    )}
+                    {/* Calidad */}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                      <div><div style={lbl}>Calidad</div>
+                        <select style={inp} value={form.calidad} onChange={function(e){setF("calidad",e.target.value); setF("subcalidad","");}}>
+                          <option value="">-- Seleccionar --</option>
+                          {(esPersa?persaCalOpts:otroCalOpts).map(function(c){return <option key={c.cal}>{c.cal}</option>;})}
+                        </select>
+                      </div>
+                      {/* Sub-calidad (solo Persa 20lb) */}
+                      {esPersa&&persaSubOpts.length>0&&(
+                        <div><div style={lbl}>Sub-calidad</div>
+                          <select style={inp} value={form.subcalidad} onChange={function(e){setF("subcalidad",e.target.value);}}>
+                            <option value="">-- Seleccionar --</option>
+                            {persaSubOpts.map(function(s){return <option key={s}>{s}</option>;})}
+                          </select>
+                        </div>
+                      )}
+                      {/* Presentacion para no-Persa */}
+                      {!esPersa&&otroPcts.length>0&&(
+                        <div><div style={lbl}>Presentacion</div>
+                          <select style={inp} value={form.presentacion} onChange={function(e){setF("presentacion",e.target.value); setF("tamano","");}}>
+                            <option value="">-- Seleccionar --</option>
+                            {otroPcts.map(function(p){return <option key={p}>{p}</option>;})}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                    {/* Tamano (solo Europeo) */}
+                    {!esPersa&&otroTams.length>0&&(
+                      <div style={{marginBottom:6}}>
+                        <div style={lbl}>Tamano</div>
+                        <select style={inp} value={form.tamano} onChange={function(e){setF("tamano",e.target.value);}}>
+                          <option value="">-- Seleccionar --</option>
+                          {otroTams.map(function(t){return <option key={t}>{t}</option>;})}
+                        </select>
+                      </div>
+                    )}
+                    {/* Cliente */}
+                    <div style={{marginBottom:6}}>
+                      <div style={lbl}>Cliente</div>
+                      <select style={inp} value={form.cliente} onChange={function(e){setF("cliente",e.target.value);}}>
+                        <option value="">-- Seleccionar --</option>
+                        {clts.map(function(c){return <option key={c}>{c}</option>;})}
+                      </select>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
+                      <div><div style={lbl}>Rancho</div>
+                        <select style={inp} value={form.rancho} onChange={function(e){setF("rancho",e.target.value);}}>
+                          {ranchosDeProducto(prod).map(function(r){return <option key={r}>{r}</option>;})}
+                        </select>
+                      </div>
+                      <div><div style={lbl}>Malla</div>
+                        <input style={inp} placeholder="Ej: 5" value={form.malla} onChange={function(e){setF("malla",e.target.value);}}/>
+                      </div>
+                      <div><div style={lbl}>Cajas</div>
+                        <input style={inp} type="number" placeholder="0" value={form.cajas} onChange={function(e){setF("cajas",e.target.value);}}/>
+                      </div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                      <div><div style={lbl}>Linea</div>
+                        <select style={inp} value={form.linea} onChange={function(e){setF("linea",e.target.value);}}>
+                          {LINEAS_PROC.map(function(l){return <option key={l}>{l}</option>;})}
+                        </select>
+                      </div>
+                      <div><div style={lbl}>Hora</div>
+                        <input style={inp} type="time" value={form.hora} onChange={function(e){setF("hora",e.target.value);}}/>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={function(){setForm(null); setErroresForm([]);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#8899aa",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                      <button onClick={function(){requerirPin(registrar);}} style={{flex:2,padding:"8px",background:col,border:"none",borderRadius:6,color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Guardar</button>
+                    </div>
+                    {erroresForm.length>0&&(
+                      <div style={{marginTop:8,background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,padding:"8px 10px"}}>
+                        <div style={{fontSize:13,fontWeight:700,color:"#ef4444",marginBottom:4}}>Faltan datos:</div>
+                        {erroresForm.map(function(e){return <div key={e} style={{fontSize:13,color:"#ef4444"}}>- {e}</div>;})}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
+              {/* Filtros */}
+              {registros.length>0&&(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:10}}>
+                  <select style={{...inp,fontSize:13,padding:"5px 8px"}} value={filtroCliente} onChange={function(e){setFiltroCliente(e.target.value);}}>
+                    <option value="">Todos clientes</option>
+                    {clts.map(function(c){return <option key={c}>{c}</option>;})}
+                  </select>
+                  <select style={{...inp,fontSize:13,padding:"5px 8px"}} value={filtroRancho} onChange={function(e){setFiltroRancho(e.target.value);}}>
+                    <option value="">Todos ranchos</option>
+                    {RANCHOS.map(function(r){return <option key={r}>{r}</option>;})}
+                  </select>
+                  <input style={{...inp,fontSize:13,padding:"5px 8px"}} placeholder="Malla..." value={filtroMalla} onChange={function(e){setFiltroMalla(e.target.value);}}/>
+                </div>
+              )}
+
+              {registros.length===0
+                ? <div style={{textAlign:"center",padding:30,color:"#8899aa",fontSize:12}}>Sin registros hoy</div>
+                : regFiltrados.length===0
+                ? <div style={{textAlign:"center",padding:20,color:"#8899aa",fontSize:11}}>Sin resultados</div>
+                : clientesReg.map(function(cliente){
+                  var regsCliente=regFiltrados.filter(function(r){return r.cliente===cliente;});
+                  var totalCliente=regsCliente.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+                  return (
+                    <div key={cliente} style={{marginBottom:12}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,padding:"4px 0",borderBottom:"1px solid "+col+"33"}}>
+                        <span style={{fontSize:15,fontWeight:700,color:col}}>{cliente}</span>
+                        <span style={{fontSize:16,fontWeight:700,color:"#ffffff",fontFamily:"Georgia,serif"}}>{totalCliente} cajas</span>
+                      </div>
+                      {regsCliente.map(function(r){
+                        return (
+                          <div key={r.id} onClick={function(){if(!modoSeleccion)return; var idx=seleccionados.indexOf(r.id); if(idx>=0){var ns=seleccionados.filter(function(x){return x!==r.id;}); setSeleccionados(ns);}else{setSeleccionados(seleccionados.concat([r.id]));};}} style={{background:r.bajado?"rgba(0,0,0,0.1)":seleccionados.indexOf(r.id)>=0?"rgba(245,158,11,0.1)":"rgba(0,0,0,0.2)",border:"1px solid "+(r.bajado?"rgba(255,255,255,0.03)":seleccionados.indexOf(r.id)>=0?"rgba(245,158,11,0.4)":"rgba(255,255,255,0.06)"),borderRadius:7,padding:"7px 10px",marginBottom:4,display:"flex",justifyContent:"space-between",alignItems:"center",cursor:modoSeleccion?"pointer":"default"}}>
+                            {modoSeleccion&&(
+                              <div style={{width:18,height:18,borderRadius:4,border:"2px solid "+(seleccionados.indexOf(r.id)>=0?"#f59e0b":"rgba(255,255,255,0.2)"),background:seleccionados.indexOf(r.id)>=0?"#f59e0b":"transparent",marginRight:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                {seleccionados.indexOf(r.id)>=0&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>v</span>}
+                              </div>
+                            )}
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:14,fontWeight:700,color:r.bajado?"#8899aa":"#ffffff"}}>{r.calidad}{r.subcalidad?" / "+r.subcalidad:""}{r.presentacion?" - "+r.presentacion:""}{r.tamano?" ("+r.tamano+")":""}{r.bajado?" ["+r.motivoBaja+"]":""}</div>
+                              <div style={{fontSize:11,color:"#b0bec5"}}>{r.rancho} . M{r.malla} . L.{r.linea} . {r.hora}</div>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <div style={{fontSize:24,fontWeight:900,color:r.bajado?"#8899aa":col,fontFamily:"Georgia,serif"}}>{r.cajas}</div>
+                              {!modoSeleccion&&!r.bajado&&<button onClick={function(){requerirPin(function(){setEditReg(Object.assign({},r));});}} style={{background:"rgba(96,165,250,0.1)",border:"1px solid rgba(96,165,250,0.3)",borderRadius:5,padding:"3px 7px",color:"#60a5fa",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Editar</button>}
+                              {!modoSeleccion&&!r.bajado&&<button onClick={function(){requerirPin(function(){if(window.confirm("Borrar este registro?"))saveData(inv.map(function(p){return p.nombre===prod?Object.assign({},p,{registros:p.registros.filter(function(x){return x.id!==r.id;})}):p;}));});}} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:5,padding:"3px 7px",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar</button>}
+                              {!modoSeleccion&&!r.bajado&&<button onClick={function(){requerirPin(function(){setModalBaja({itemId:r.id,tipo:"reg",producto:prod});});}} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:5,padding:"3px 7px",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Baja</button>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+              }
+            </div>
+          )}
+
+          {/* Dados de baja */}
+          {tab==="bajas"&&(
+            <div>
+              {regsBajados.length===0
+                ? <div style={{textAlign:"center",padding:30,color:"#8899aa",fontSize:12}}>Sin bajas hoy</div>
+                : regsBajados.map(function(r){
+                  return (
+                    <div key={r.id} style={{background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:7,padding:"8px 10px",marginBottom:6}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{fontSize:11,fontWeight:700,color:"#b0bec5"}}>{r.calidad}{r.subcalidad?" / "+r.subcalidad:""}{r.presentacion?" - "+r.presentacion:""}</div>
+                          <div style={{fontSize:13,color:"#8899aa"}}>{r.cliente||"Sin cliente"} . {r.rancho} . M{r.malla} . {r.hora}</div>
+                          <div style={{fontSize:12,marginTop:2}}>
+                            <span style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px",color:"#ef4444",fontWeight:700}}>{r.motivoBaja}</span>
+                            {r.reprocesadoComo&&<span style={{marginLeft:4,color:"#a78bfa",fontSize:9}}>-> {r.reprocesadoComo}</span>}
+                          </div>
+                        </div>
+                        <div style={{fontSize:18,fontWeight:900,color:"#8899aa",fontFamily:"Georgia,serif"}}>{r.cajas}</div>
+                      </div>
+                    </div>
+                  );
+                })
+              }
+              {regsBajados.length>0&&(
+                <div style={{marginTop:8,padding:"8px 10px",background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:7,display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:11,color:"#8899aa"}}>Total dado de baja hoy</span>
+                  <span style={{fontSize:14,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif"}}>{regsBajados.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0)} cajas</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Inventario */}
+          {tab==="inventario"&&(
+            <div>
+              {/* Botones seleccion multiple */}
+              {inventario.length>0&&(
+                <div style={{display:"flex",gap:6,marginBottom:10}}>
+                  {modoSeleccionInv
+                    ? <button onClick={function(){setModalBajaInv(true);}} disabled={seleccionadosInv.length===0} style={{flex:2,padding:"9px",background:seleccionadosInv.length>0?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.04)",border:"1px solid "+(seleccionadosInv.length>0?"rgba(239,68,68,0.5)":"rgba(255,255,255,0.1)"),borderRadius:8,color:seleccionadosInv.length>0?"#ef4444":"#8899aa",fontSize:11,fontWeight:700,cursor:seleccionadosInv.length>0?"pointer":"default",fontFamily:"system-ui"}}>Dar de baja ({seleccionadosInv.length})</button>
+                    : <div style={{flex:2}}/>
+                  }
+                  <button onClick={function(){requerirPin(function(){setModoSeleccionInv(!modoSeleccionInv); setSeleccionadosInv([]);});}} style={{flex:1,padding:"9px",background:modoSeleccionInv?"rgba(245,158,11,0.15)":"rgba(255,255,255,0.05)",border:"1px solid "+(modoSeleccionInv?"rgba(245,158,11,0.4)":"rgba(255,255,255,0.1)"),borderRadius:8,color:modoSeleccionInv?"#f59e0b":"#b0bec5",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>{modoSeleccionInv?"Cancelar":"Seleccionar"}</button>
+                </div>
+              )}
+              {inventario.length===0
+                ? <div style={{textAlign:"center",padding:30,color:"#8899aa",fontSize:12}}>Sin inventario</div>
+                : <InvPorFecha inventario={inventario} diasDesde={diasDesde} DIAS_ALARMA={DIAS_ALARMA} col={col} prod={prod} setModalBaja={setModalBaja} modoSeleccionInv={modoSeleccionInv} seleccionadosInv={seleccionadosInv} setSeleccionadosInv={setSeleccionadosInv}/>
+              }
+            </div>
+          )}
+
+          {/* Pedidos cerrados */}
+          {tab==="cerrados"&&(
+            <div>
+              <PedsCerrados pedidosCerrados={pedidosCerrados} prod={prod} registros={registros} col={col} setPedidosCerrados={setPedidosCerrados} fbSet={fbSet} PED_CERR_KEY={PED_CERR_KEY}/>
+              {(Array.isArray(pedidosCerrados[prod])&&pedidosCerrados[prod].length>0)&&(
+                <button onClick={async function(){
+                  var pc2={}; Object.keys(pedidosCerrados).forEach(function(k){pc2[k]=pedidosCerrados[k];}); pc2[prod]=[];
+                  setPedidosCerrados(pc2); await fbSet(PED_CERR_KEY,pc2);
+                }} style={{width:"100%",padding:"8px",marginTop:8,background:"transparent",border:"1px solid rgba(239,68,68,0.3)",borderRadius:6,color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar pedidos cerrados</button>
+              )}
+            </div>
+          )}
+
+          {/* Modal baja multiple inventario */}
+          {modalBajaInv&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:4}}>Dar de baja - Inventario</div>
+                <div style={{fontSize:11,color:"#b0bec5",marginBottom:12}}>{seleccionadosInv.length} items seleccionados</div>
+                <div style={{marginBottom:8}}>
+                  <div style={lbl}>Motivo</div>
+                  <select style={inp} value={motivoBajaInv} onChange={function(e){setMotivoBajaInv(e.target.value);}}>
+                    <option>Merma</option>
+                    <option>Carga directa</option>
+                    <option>Reproceso</option>
+                  </select>
+                </div>
+                {motivoBajaInv==="Reproceso"&&(
+                  <div style={{marginBottom:8}}>
+                    <div style={lbl}>Nueva presentacion</div>
+                    <select style={inp} value={presentacionReprocesoInv} onChange={function(e){setPresentacionReprocesoInv(e.target.value);}}>
+                      <option value="">-- Seleccionar --</option>
+                      {(modalBaja&&modalBaja.producto==="Persa"?["12x1","8x2"]:["20lb","12x1","8x2","18ct","24ct","36ct","25lb","50lb","12ct","1/9 bushel","11lb","12x2","12x8oz","10lb","15lb"]).map(function(p){return <option key={p}>{p}</option>;})}
+                    </select>
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button onClick={function(){setModalBajaInv(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={function(){darBajaMultipleInventario(prod);}} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal baja multiple */}
+          {modalBajaMulti&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:4}}>Dar de baja</div>
+                <div style={{fontSize:11,color:"#b0bec5",marginBottom:12}}>{seleccionados.length} pallets seleccionados</div>
+                <div style={{marginBottom:8}}>
+                  <div style={lbl}>Motivo</div>
+                  <select style={inp} value={motivoBajaMulti} onChange={function(e){setMotivoBajaMulti(e.target.value);}}>
+                    <option>Merma</option>
+                    <option>Carga directa</option>
+                    <option>Reproceso</option>
+                  </select>
+                </div>
+                {motivoBajaMulti==="Reproceso"&&(
+                  <div style={{marginBottom:8}}>
+                    <div style={lbl}>Nueva presentacion</div>
+                    <select style={inp} value={presentacionReprocesoMulti} onChange={function(e){setPresentacionReprocesoMulti(e.target.value);}}>
+                      <option value="">-- Seleccionar --</option>
+                      {(modalBajaInv&&modalBajaInv.producto==="Persa"?["12x1","8x2"]:["20lb","12x1","8x2","18ct","24ct","36ct","25lb","50lb","12ct","1/9 bushel","11lb","12x2","12x8oz","10lb","15lb"]).map(function(p){return <option key={p}>{p}</option>;})}
+                    </select>
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button onClick={function(){setModalBajaMulti(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={function(){darBajaMultiple(prod);}} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal baja */}
+          {modalBaja&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:12}}>Dar de baja</div>
+                <div style={{marginBottom:8}}>
+                  <div style={lbl}>Motivo</div>
+                  <select style={inp} value={motivoBaja} onChange={function(e){setMotivoBaja(e.target.value);}}>
+                    <option>Reproceso</option>
+                    <option>Merma</option>
+                    <option>Carga directa</option>
+                  </select>
+                </div>
+                {motivoBaja==="Reproceso"&&(
+                  <div style={{marginBottom:8}}>
+                    <div style={lbl}>Nueva presentacion</div>
+                    <select style={inp} value={presentacionReproceso} onChange={function(e){setPresentacionReproceso(e.target.value);}}>
+                      <option value="">-- Seleccionar --</option>
+                      {(FLUJO_PERSA.map(function(x){return x.pct;})).concat(["18ct","24ct","36ct","25lb","50lb","12ct","24ct","1/9 bushel","11lb","12x2","12x1","12x8oz","10lb","15lb","20lb"]).map(function(p){return <option key={p}>{p}</option>;})}
+                    </select>
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button onClick={function(){setModalBaja(null);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={darBaja} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal pedido */}
+          {modalPedido&&formPedido&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid "+col+"44",borderRadius:12,padding:"18px",maxWidth:320,width:"100%"}}>
+                <div style={{fontSize:14,fontWeight:900,color:col,marginBottom:12}}>Pedido activo - {prod}</div>
+                <div style={{marginBottom:6}}>
+                  <div style={lbl}>Cliente</div>
+                  <select style={inp} value={formPedido.cliente} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:e.target.value,calidad:"",subcalidad:"",presentacion:f.presentacion,cajas:f.cajas};});}}>
+                    <option value="">-- Seleccionar --</option>
+                    {clts.map(function(c){return <option key={c}>{c}</option>;})}
+                  </select>
+                </div>
+                <div style={{marginBottom:6}}>
+                  <div style={lbl}>Presentacion</div>
+                  <select style={inp} value={formPedido.presentacion} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:f.cliente,calidad:"",subcalidad:"",presentacion:e.target.value,cajas:f.cajas};});}}>
+                    <option value="">-- Seleccionar --</option>
+                    {(esPersa?FLUJO_PERSA.map(function(x){return x.pct;}):otroPcts).map(function(p){return <option key={p}>{p}</option>;})}
+                  </select>
+                </div>
+                {/* Calidad segun presentacion seleccionada */}
+                {formPedido.presentacion&&(
+                  <div>
+                    <div style={{marginBottom:6}}>
+                      <div style={lbl}>Calidad</div>
+                      <select style={inp} value={formPedido.calidad} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:f.cliente,calidad:e.target.value,subcalidad:"",presentacion:f.presentacion,cajas:f.cajas};});}}>
+                        <option value="">-- Seleccionar --</option>
+                        {(esPersa
+                          ?(FLUJO_PERSA.filter(function(x){return x.pct===formPedido.presentacion;})[0]||{cals:[]}).cals
+                          :otroCalOpts
+                        ).map(function(c){return <option key={c.cal}>{c.cal}</option>;})}
+                      </select>
+                    </div>
+                    {formPedido.calidad&&(esPersa
+                      ?(((FLUJO_PERSA.filter(function(x){return x.pct===formPedido.presentacion;})[0]||{cals:[]}).cals.filter(function(c){return c.cal===formPedido.calidad;})[0]||{subs:null}).subs||[])
+                      :[]
+                    ).length>0&&(
+                      <div style={{marginBottom:6}}>
+                        <div style={lbl}>Sub-calidad</div>
+                        <select style={inp} value={formPedido.subcalidad||""} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:f.cliente,calidad:f.calidad,subcalidad:e.target.value,presentacion:f.presentacion,cajas:f.cajas};});}}>
+                          <option value="">-- Seleccionar --</option>
+                          {(esPersa
+                            ?(((FLUJO_PERSA.filter(function(x){return x.pct===formPedido.presentacion;})[0]||{cals:[]}).cals.filter(function(c){return c.cal===formPedido.calidad;})[0]||{subs:[]}).subs||[])
+                            :[]
+                          ).map(function(s){return <option key={s}>{s}</option>;})}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{marginBottom:6}}>
+                  <div style={lbl}>Cajas del pedido</div>
+                  <input style={inp} type="number" placeholder="0" value={formPedido.cajas} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:f.cliente,calidad:f.calidad,subcalidad:f.subcalidad,presentacion:f.presentacion,cajas:e.target.value};});}}/>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={function(){setModalPedido(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={async function(){
+                    var listaActual=Array.isArray(pedidos[prod])?pedidos[prod]:[];
+                    var nuevoPed={id:Date.now(),producto:formPedido.producto,cliente:formPedido.cliente,calidad:formPedido.calidad,subcalidad:formPedido.subcalidad||"",presentacion:formPedido.presentacion,cajas:formPedido.cajas};
+                    var lista=listaActual.concat([nuevoPed]);
+                    var p2={}; Object.keys(pedidos).forEach(function(k){p2[k]=pedidos[k];}); p2[prod]=lista;
+                    setPedidos(p2); await fbSet(PED_KEY,p2);
+                    setFormPedido({producto:prod,cliente:"",calidad:"",subcalidad:"",presentacion:"",cajas:""});
+                  }} style={{flex:1,padding:"8px",background:col+"33",border:"1px solid "+col+"66",borderRadius:6,color:col,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Guardar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Confirmar cerrar pedido */}
+          {confirmCerrarPed&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%",textAlign:"center"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:8}}>Cerrar pedido</div>
+                <div style={{fontSize:12,color:"#b0bec5",marginBottom:4}}>{confirmCerrarPed.cliente}</div>
+                <div style={{fontSize:11,color:"#8899aa",marginBottom:16}}>{confirmCerrarPed.presentacion} - {confirmCerrarPed.cajas} cajas</div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={function(){setConfirmCerrarPed(null);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={async function(){
+                    // Quitar de activos
+                    var lista=(Array.isArray(pedidos[prod])?pedidos[prod]:[]).filter(function(p){return p.id!==confirmCerrarPed.id;});
+                    var p2={}; Object.keys(pedidos).forEach(function(k){p2[k]=pedidos[k];}); p2[prod]=lista;
+                    setPedidos(p2); await fbSet(PED_KEY,p2);
+                    // Mover a cerrados
+                    var cerrado={};
+                    Object.keys(confirmCerrarPed).forEach(function(k){cerrado[k]=confirmCerrarPed[k];});
+                    cerrado.fechaCierre=hoy();
+                    var listaCerr=(Array.isArray(pedidosCerrados[prod])?pedidosCerrados[prod]:[]).concat([cerrado]);
+                    var pc2={}; Object.keys(pedidosCerrados).forEach(function(k){pc2[k]=pedidosCerrados[k];}); pc2[prod]=listaCerr;
+                    setPedidosCerrados(pc2); await fbSet("pedidos-cerrados-v1",pc2);
+                    setConfirmCerrarPed(null);
+                  }} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Confirmar cerrar dia */}
+          {confirmCerrar&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%",textAlign:"center"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:8}}>Cerrar dia - {prod}</div>
+                <div style={{fontSize:12,color:"#b0bec5",marginBottom:16}}>Los registros pasan al inventario y los contadores se ponen en cero.</div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={function(){setConfirmCerrar(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={cerrarDia} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+    {modalPin&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.92)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#0f1f14",border:"2px solid rgba(34,197,94,0.4)",borderRadius:16,padding:"28px 24px",maxWidth:300,width:"100%",textAlign:"center"}}>
+          <div style={{fontSize:18,fontWeight:900,color:"#f0ede8",marginBottom:6}}>Acceso de editor</div>
+          <div style={{fontSize:12,color:"#8899aa",marginBottom:20}}>Ingresa el PIN para registrar y modificar</div>
+          <input type="number" value={pinInput} onChange={function(e){setPinInput(e.target.value.slice(0,4));setPinError(false);}} placeholder="0000" style={{width:"100%",background:"rgba(0,0,0,0.5)",border:"2px solid "+(pinError?"#ef4444":"rgba(34,197,94,0.3)"),borderRadius:10,padding:"14px",color:"#22c55e",fontFamily:"monospace",fontSize:32,textAlign:"center",outline:"none",marginBottom:10}}/>
+          {pinError&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8,fontWeight:700}}>PIN incorrecto</div>}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button onClick={function(){setModalPin(false);setAccionPendiente(null);setPinInput("");}} style={{flex:1,padding:"12px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#8899aa",fontSize:13,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+            <button onClick={confirmarPin} style={{flex:1,padding:"12px",background:"rgba(34,197,94,0.2)",border:"1px solid rgba(34,197,94,0.5)",borderRadius:8,color:"#22c55e",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Entrar</button>
+          </div>
+        </div>
+      </div>
+    )}
+    <button onClick={function(){if(!autenticado){setModalPin(true);setPinInput("");setPinError(false);}else{setAutenticado(false);}}} style={{position:"fixed",bottom:16,right:16,zIndex:100,padding:"10px 18px",borderRadius:24,background:autenticado?"#166534":"#1e293b",color:autenticado?"#4ade80":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer",border:"2px solid "+(autenticado?"#22c55e":"#334155"),fontFamily:"system-ui",boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>{autenticado?"Editor":"Lector"}</button>
+      </React.Fragment>
+    );
+  }
+
+  // -- TABLERO PRINCIPAL ------------------------------------------------------
+  if(loading) return <div style={{background:"#0d1a12",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#22c55e",fontFamily:"monospace",fontSize:14}}>Cargando...</div>;
+
+  var alertasTotal=PRODUCTOS.reduce(function(s,p){
+    var inv=(datos[p]&&datos[p].inventario)||[];
+    return s+inv.filter(function(r){return diasDesde(r.fechaInventario||r.fecha||"")>=DIAS_ALARMA;}).length;
+  },0);
+
+  return (
+    <React.Fragment>
+    <div style={{background:"#0d1a12",minHeight:"100vh",color:"#f0ede8",fontFamily:"system-ui"}}>
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"radial-gradient(135deg, #1a3020 0%, #0d1a12 60%)",zIndex:0,pointerEvents:"none"}}/>
+      <div style={{position:"relative",zIndex:1,maxWidth:900,margin:"0 auto",padding:"14px 12px 60px"}}>
+
+        <div style={{textAlign:"center",marginBottom:16,borderBottom:"1px solid rgba(34,197,94,0.15)",paddingBottom:12}}>
+          <div style={{fontSize:11,color:"#22c55e",textTransform:"uppercase",letterSpacing:4,marginBottom:4}}>Parras Valley</div>
+          <div style={{fontSize:32,fontWeight:900,color:"#ffffff",letterSpacing:2}}>PRODUCCION</div>
+          <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
+            {alertasTotal>0&&<div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:20,padding:"3px 10px",fontSize:12,color:"#ef4444",fontWeight:700}}>{alertasTotal} alertas inventario</div>}
+            <button onClick={function(){setVistaHist(true);}} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:20,padding:"3px 10px",color:"#b0bec5",fontSize:12,cursor:"pointer",fontFamily:"system-ui"}}>Historial</button>
+            <button onClick={function(){setVistaAcum(true);}} style={{background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:20,padding:"3px 10px",color:"#a78bfa",fontSize:12,cursor:"pointer",fontFamily:"system-ui"}}>Acumulado</button>
+            <button onClick={cargar} style={{background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.2)",borderRadius:20,padding:"3px 10px",color:"#22c55e",fontSize:12,cursor:"pointer",fontFamily:"system-ui"}}>Actualizar</button>
+            <button onClick={function(){requerirPin(function(){setConfirmReset(true);});}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:20,padding:"3px 10px",color:"#ef4444",fontSize:12,cursor:"pointer",fontFamily:"system-ui"}}>Reset</button>
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:10}}>
+          {PRODUCTOS.map(function(p){
+            var col=COLORES[p]||"#b0bec5";
+            var reg=(datos[p]&&datos[p].registros)||[];
+            var inv=(datos[p]&&datos[p].inventario)||[];
+            var total=reg.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+            var totalInv=inv.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+            var alertas=inv.filter(function(r){return diasDesde(r.fechaInventario||r.fecha||"")>=DIAS_ALARMA;}).length;
+            var pedProd=Array.isArray(pedidos[p])?pedidos[p]:[];
+            return (
+              <div key={p} onClick={function(){setProd(p); setTab("registro"); setForm(null); setFiltroCliente(""); setFiltroRancho(""); setFiltroMalla("");}}
+                style={{background:"linear-gradient(135deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.2) 100%)",border:"2px solid "+(alertas>0?"rgba(239,68,68,0.6)":col+"44"),borderRadius:14,padding:"14px",cursor:"pointer",position:"relative",overflow:"hidden"}}>
+                {alertas>0&&<div style={{position:"absolute",top:8,right:8,background:"#ef4444",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#fff",fontWeight:700}}>{alertas}</div>}
+                <div style={{fontSize:22,fontWeight:900,color:col,marginBottom:10}}>{p}</div>
+                <div style={{marginBottom:6}}>
+                  <div style={{fontSize:11,color:"#b0bec5",textTransform:"uppercase",letterSpacing:1}}>Empacado hoy</div>
+                  <div style={{fontSize:52,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif",lineHeight:1}}>{total}</div>
+                  <div style={{fontSize:13,color:"#b0bec5",letterSpacing:1}}>cajas</div>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
+                  <span style={{color:"#b0bec5"}}>Inventario:</span>
+                  <span style={{color:alertas>0?"#ef4444":col,fontWeight:700}}>{totalInv} cajas</span>
+                </div>
+                {pedProd.length>0&&pedProd[0]&&pedProd[0].cajas&&(
+                  <MiniPedido ped={pedProd[0]} reg={reg} col={col}/>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+      {/* Modal reset */}
+    {confirmReset&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.5)",borderRadius:12,padding:"24px",maxWidth:320,width:"100%",textAlign:"center"}}>
+          <div style={{fontSize:16,fontWeight:900,color:"#ffffff",marginBottom:8}}>Borrar todo</div>
+          <div style={{fontSize:13,color:"#b0bec5",marginBottom:20}}>Se borraran todos los registros, inventario, pedidos e historial. Esta accion no se puede deshacer.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={function(){setConfirmReset(false);}} style={{flex:1,padding:"10px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#b0bec5",fontSize:13,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+            <button onClick={async function(){
+              var vacio=initDatos();
+              await guardar(vacio);
+              await fbSet(HIST_KEY,[]);
+              await fbSet(PED_KEY,{});
+              await fbSet(PED_CERR_KEY,{});
+              setHistorial([]); setPedidos({}); setPedidosCerrados({});
+              setConfirmReset(false);
+            }} style={{flex:1,padding:"10px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.5)",borderRadius:8,color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar todo</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Boton Lector/Editor fijo */}
+    <button onClick={function(){if(!autenticado){setModalPin(true);setPinInput("");setPinError(false);}else{setAutenticado(false);}}}
+      style={{position:"fixed",bottom:16,right:16,zIndex:100,padding:"10px 18px",borderRadius:24,background:autenticado?"#166534":"#1e293b",color:autenticado?"#4ade80":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer",border:"2px solid "+(autenticado?"#22c55e":"#334155"),fontFamily:"system-ui",boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>
+      {autenticado?"Editor":"Lector"}
+    </button>
+
+    {modalPin&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.92)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#0f1f14",border:"2px solid rgba(34,197,94,0.4)",borderRadius:16,padding:"28px 24px",maxWidth:300,width:"100%",textAlign:"center"}}>
+          <div style={{fontSize:18,fontWeight:900,color:"#f0ede8",marginBottom:6}}>Acceso de editor</div>
+          <div style={{fontSize:12,color:"#8899aa",marginBottom:20}}>Ingresa el PIN para registrar y modificar</div>
+          <input type="number" value={pinInput} onChange={function(e){setPinInput(e.target.value.slice(0,4));setPinError(false);}} placeholder="0000" style={{width:"100%",background:"rgba(0,0,0,0.5)",border:"2px solid "+(pinError?"#ef4444":"rgba(34,197,94,0.3)"),borderRadius:10,padding:"14px",color:"#22c55e",fontFamily:"monospace",fontSize:32,textAlign:"center",outline:"none",marginBottom:10}}/>
+          {pinError&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8,fontWeight:700}}>PIN incorrecto</div>}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button onClick={function(){setModalPin(false);setAccionPendiente(null);setPinInput("");}} style={{flex:1,padding:"12px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#8899aa",fontSize:13,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+            <button onClick={confirmarPin} style={{flex:1,padding:"12px",background:"rgba(34,197,94,0.2)",border:"1px solid rgba(34,197,94,0.5)",borderRadius:8,color:"#22c55e",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Entrar</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL EDITAR REGISTRO */}
+    {editReg&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.92)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#0a1628",border:"2px solid rgba(96,165,250,0.4)",borderRadius:14,padding:"20px",maxWidth:420,width:"100%",maxHeight:"90vh",overflowY:"auto"}}>
+          <div style={{fontSize:15,fontWeight:900,color:"#60a5fa",marginBottom:14}}>Editar registro</div>
+          {[
+            ["cliente","Cliente"],["calidad","Calidad"],["subcalidad","Subcalidad"],
+            ["presentacion","Presentacion"],["tamano","Tamano"],["rancho","Rancho"],
+            ["malla","Malla"],["linea","Linea"],["cajas","Cajas"]
+          ].map(function(pair){
+            var campo=pair[0]; var lbl=pair[1];
+            return(
+              <div key={campo} style={{marginBottom:10}}>
+                <label style={{display:"block",fontSize:9,fontWeight:800,letterSpacing:1.5,color:"#4a6a7a",marginBottom:4,textTransform:"uppercase"}}>{lbl}</label>
+                <input value={editReg[campo]||""} onChange={function(e){setEditReg(Object.assign({},editReg,{[campo]:e.target.value}));}}
+                  type={campo==="cajas"?"number":"text"}
+                  style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"2px solid rgba(96,165,250,0.25)",borderRadius:8,padding:"8px 10px",color:"#e8eaf0",fontFamily:"system-ui",fontSize:14,fontWeight:700,outline:"none"}}/>
+              </div>
+            );
+          })}
+          <div style={{display:"flex",gap:10,marginTop:14}}>
+            <button onClick={function(){setEditReg(null);}} style={{flex:1,padding:"11px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:9,color:"#6b7280",fontFamily:"system-ui",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={function(){
+              var updatedReg=editReg;
+              saveData(inv.map(function(p){
+                return Object.assign({},p,{registros:p.registros.map(function(r){return r.id===updatedReg.id?Object.assign({},r,updatedReg):r;})});
+              }));
+              setEditReg(null);
+            }} style={{flex:2,padding:"11px",background:"rgba(96,165,250,0.15)",border:"2px solid rgba(96,165,250,0.4)",borderRadius:9,color:"#60a5fa",fontFamily:"system-ui",fontSize:14,fontWeight:900,cursor:"pointer"}}>Guardar cambios</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    </div>
+    </div>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
