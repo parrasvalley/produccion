@@ -1,0 +1,2106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="version" content="20260623000104">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Produccion | Parras Valley</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}html,body{height:100%;font-family:'Inter',system-ui,sans-serif;background:#08120a;color:#f0ede8;}::-webkit-scrollbar{width:22px;}::-webkit-scrollbar-track{background:rgba(255,255,255,0.04);}::-webkit-scrollbar-thumb{background:rgba(74,222,128,0.5);border-radius:11px;border:5px solid transparent;background-clip:padding-box;}::-webkit-scrollbar-thumb:hover{background:rgba(74,222,128,0.7);background-clip:padding-box;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+
+var PRODUCTOS = ["Persa","Slicer","Europeo","Morron","Minibel"];
+var RANCHOS = ["PVT","Cordillera","Forrajera"];
+var PRODUCTO_RANCHOS = {
+  Persa:   ["PVT","Cordillera","Forrajera"],
+  Slicer:  ["PVT","Cordillera"],
+  Europeo: ["Cordillera"],
+  Morron:  ["Cordillera","Forrajera"],
+  Minibel: ["Cordillera","Forrajera"]
+};
+function ranchosDeProducto(p){
+  return PRODUCTO_RANCHOS[p]||RANCHOS;
+}
+var LINEAS_PROC = ["Persa","Slicer","Europeo","Morron","Minibel"];
+var DIAS_ALARMA = 3;
+var FB_URL = "https://parrasvalley-default-rtdb.firebaseio.com";
+var PROD_KEY = "produccion-v1";
+var HIST_KEY = "produccion-hist-v1";
+var PED_KEY  = "pedidos-v1";
+var FOLIO_KEY="produccion-folio-v1";
+
+async function siguienteFolio(){
+  var anio=new Date().getFullYear();
+  var claveAnio=FOLIO_KEY+"-"+anio;
+  // Leer contador actual
+  var n=1;
+  try{
+    var local=localStorage.getItem(claveAnio);
+    if(local)n=parseInt(local)||1;
+    // Intentar leer de Firebase para tener el mas actualizado
+    var r=await fetch(FB_URL+"/"+claveAnio+".json",{signal:AbortSignal.timeout(3000)});
+    if(r.ok){var rv=await r.json();if(rv&&parseInt(rv)>n)n=parseInt(rv);}
+  }catch(e){}
+  var folio="PROD-"+anio+"-"+String(n).padStart(4,"0");
+  var siguiente=n+1;
+  // Guardar el siguiente numero
+  try{localStorage.setItem(claveAnio,String(siguiente));}catch(e){}
+  fetch(FB_URL+"/"+claveAnio+".json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(siguiente)}).catch(function(){});
+  return folio;
+}
+
+function esDuplicado(datos,folio){
+  var dup=false;
+  Object.keys(datos||{}).forEach(function(p){
+    ((datos[p]&&datos[p].registros)||[]).forEach(function(r){
+      if(r.folio===folio)dup=true;
+    });
+  });
+  return dup;
+}
+
+var CLIENTES = {
+  Persa:   ["Sin cliente","Mama Mia","Lakeway","DQP","Wholesum","4 Earth","Perfresh","Nature Sweet","Pero Family","Produce Team","Custom Pack","Lipman","King Harvest"],
+  Slicer:  ["Sin cliente","Mama Mia","Lakeway","DQP","Wholesum","4 Earth","Perfresh","Nature Sweet","Pero Family","Produce Team","Custom Pack","Lipman","King Harvest"],
+  Europeo: ["Sin cliente","Mama Mia","Lakeway","DQP","Wholesum","4 Earth","Perfresh","Nature Sweet","Pero Family","Produce Team","Custom Pack","Lipman","Farmers Best"],
+  Morron:  ["Sin cliente","Wholesum","Pero Family","Perfresh","Nature Sweet"],
+  Minibel: ["Sin cliente","Nature Sweet","Pero Family","Perfresh","Wilson Produce","4 Earth","Pure Flavor"],
+};
+
+// Flujo: Presentacion -> Calidad -> SubCalidad (si aplica)
+var FLUJO_PERSA = [
+  { pct:"20lb",  cals:[{cal:"Primera",subs:["FCY","XF"]},{cal:"Segunda",subs:["ML","MS"]},{cal:"Tercera",subs:["Choice"]}] },
+  { pct:"12x1",  cals:[{cal:"Primera",subs:null},{cal:"Segunda",subs:null}] },
+  { pct:"8x2",   cals:[{cal:"Primera",subs:null},{cal:"Segunda",subs:null}] },
+];
+
+var FLUJO_OTROS = {
+  Slicer:  { cals:[{cal:"Super",subs:null},{cal:"Selecto",subs:null},{cal:"Large",subs:null},{cal:"Plain",subs:null}], pcts:["18ct","24ct","36ct","25lb","50lb"], extraPcts:{Lakeway:["62 piezas","Small"]} },
+  Europeo: { cals:[{cal:"Primera",subs:null},{cal:"Segunda",subs:null},{cal:"Bushel",subs:null}], pcts:["12ct","24ct","1/9 bushel"], tams:{"12ct":["Small","Mediano"],"24ct":["Small","Mediano"]} },
+  Morron:  { cals:[{cal:"Primera",subs:["Small","Large","Extra Large","Jumbo"]},{cal:"Choice",subs:null},{cal:"Tercera",subs:null}], pcts:{"Primera":["25lb","11lb","12x2"],"Choice":["1/9 bushel"],"Tercera":["25lb"]} },
+  Minibel: { cals:[{cal:"Primera",subs:null},{cal:"Segunda",subs:null}], pcts:{"Primera":["12x1","12x8oz","25lb","11lb"],"Segunda":["10lb","15lb","18lb","20lb"]} },
+};
+var PERSA_EXTRA_PCTS = {Lakeway:["30lb"]};
+
+var COLORES = {Persa:"#22c55e",Slicer:"#3b82f6",Europeo:"#a78bfa",Morron:"#f59e0b",Minibel:"#f43f5e"};
+
+// Contar registros totales en datos
+function contarRegs(d){
+  if(!d||typeof d!=="object")return 0;
+  var n=0;
+  Object.keys(d).forEach(function(k){
+    var v=d[k];
+    if(v&&Array.isArray(v.registros))n+=v.registros.length;
+    if(v&&Array.isArray(v.inventario))n+=v.inventario.length;
+  });
+  return n;
+}
+
+async function fbGet(key){
+  // Cargar local primero
+  var local=null;
+  try{ var lv=localStorage.getItem(key); if(lv)local=JSON.parse(lv); }catch(e){}
+  // Intentar Firebase
+  var remote=null;
+  try{
+    var r=await fetch(FB_URL+"/"+key+".json",{signal:AbortSignal.timeout(5000)});
+    if(r.ok)remote=await r.json();
+  }catch(e){}
+  // Usar el que tenga MAS datos (protege cambios offline)
+  if(!remote&&!local)return null;
+  if(!remote)return local;
+  if(!local)return remote;
+  var nLocal=contarRegs(local);var nRemote=contarRegs(remote);
+  // Si hay pendientes locales o local tiene mas datos, usar local y sincronizar
+  var pending=localStorage.getItem(key+"_pending");
+  if(pending||nLocal>nRemote){
+    // Subir local a Firebase en background
+    fetch(FB_URL+"/"+key+".json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(local)})
+      .then(function(){localStorage.removeItem(key+"_pending");}).catch(function(){});
+    return local;
+  }
+  return remote;
+}
+
+async function fbSet(key,value){
+  // 1. Guardar en localStorage SIEMPRE (inmediato, sin internet)
+  try{ localStorage.setItem(key,JSON.stringify(value)); }catch(e){}
+  // 2. Intentar Firebase
+  var ok=false;
+  try{
+    var r=await fetch(FB_URL+"/"+key+".json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(value),signal:AbortSignal.timeout(8000)});
+    ok=r.ok;
+  }catch(e){}
+  // 3. Si fallo Firebase, marcar como pendiente
+  if(!ok){
+    try{ localStorage.setItem(key+"_pending","1"); }catch(e){}
+  } else {
+    try{ localStorage.removeItem(key+"_pending"); }catch(e){}
+  }
+  return ok;
+}
+
+function hoy(){
+  return new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"2-digit",year:"numeric"});
+}
+function horaActual(){
+  var n=new Date();
+  return n.getHours().toString().padStart(2,"0")+":"+n.getMinutes().toString().padStart(2,"0");
+}
+function diasDesde(fecha){
+  try{
+    var parts=fecha.split("/"); var d=parseInt(parts[0]); var m=parseInt(parts[1]); var y=parseInt(parts[2]);
+    return Math.floor((new Date()-new Date(y,m-1,d))/86400000);
+  }catch(e){ return 0; }
+}
+function initDatos(){
+  var o={};
+  PRODUCTOS.forEach(function(p){ o[p]={registros:[],inventario:[]}; });
+  return o;
+}
+
+function fechaLocalISO(){
+  var d=new Date();var m=d.getMonth()+1;var dd=d.getDate();
+  return d.getFullYear()+"-"+(m<10?"0":"")+m+"-"+(dd<10?"0":"")+dd;
+}
+function initForm(prod){
+  return {producto:prod||"Persa",presentacion:"",calidad:"",subcalidad:"",tamano:"",cliente:"",rancho:ranchosDeProducto(prod||"Persa")[0],malla:"",linea:"Persa",cajas:"",hora:horaActual(),fecha:fechaLocalISO()};
+}
+
+function MiniPedido(props){
+  var ped=props.ped; var reg=props.reg; var col=props.col;
+  var cajasP=reg.filter(function(r){return r.cliente===ped.cliente;}).reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+  var total=parseInt(ped.cajas)||1;
+  var pct=Math.min(100,Math.round(cajasP/total*100));
+  return (
+    <div style={{marginTop:8}}>
+      <div style={{fontSize:11,color:"#8899aa",marginBottom:3}}>{ped.cliente} - {ped.cajas} cajas</div>
+      <div style={{height:6,background:"rgba(255,255,255,0.07)",borderRadius:3,overflow:"hidden",marginBottom:2}}>
+        <div style={{height:"100%",width:pct+"%",background:pct>=100?"#22c55e":col,borderRadius:3}}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:8}}>
+        <span style={{color:"#22c55e"}}>{cajasP} ({pct}%)</span>
+        <span style={{color:"#ef4444"}}>Faltan {Math.max(0,total-cajasP)}</span>
+      </div>
+    </div>
+  );
+}
+
+function ResumenPct(props){
+  var registros=props.registros; var col=props.col;
+  var porPct={};
+  registros.forEach(function(r){
+    var k=r.presentacion||(r.calidad||"");
+    porPct[k]=(porPct[k]||0)+(parseInt(r.cajas)||0);
+  });
+  return (
+    <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+      {Object.keys(porPct).map(function(k){
+        return (
+          <div key={k} style={{background:col+"18",border:"1px solid "+col+"33",borderRadius:6,padding:"4px 8px",textAlign:"center"}}>
+            <div style={{fontSize:14,fontWeight:900,color:col,fontFamily:"Georgia,serif"}}>{porPct[k]}</div>
+            <div style={{fontSize:11,color:"#8899aa"}}>{k}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function InvPorFecha(props){
+  var inventario=props.inventario; var diasDesde=props.diasDesde; var DIAS_ALARMA=props.DIAS_ALARMA;
+  var col=props.col; var setModalBaja=props.setModalBaja;
+  var modoSeleccionInv=props.modoSeleccionInv; var seleccionadosInv=props.seleccionadosInv; var setSeleccionadosInv=props.setSeleccionadosInv;
+  var onBorrar=props.onBorrar; var onDescontar=props.onDescontar;
+  var sF=React.useState("");var filtFecha=sF[0];var setFiltFecha=sF[1];
+  var sC=React.useState("");var filtCliente=sC[0];var setFiltCliente=sC[1];
+  var sR=React.useState("");var filtRancho=sR[0];var setFiltRancho=sR[1];
+  var sM=React.useState("");var filtMalla=sM[0];var setFiltMalla=sM[1];
+  var hayFiltros=filtFecha||filtCliente||filtRancho||filtMalla;
+
+  var invFilt=inventario.filter(function(r){
+    if(filtFecha&&(r.fechaInventario||r.fecha||"").indexOf(filtFecha)<0)return false;
+    if(filtCliente&&(r.cliente||"").toLowerCase().indexOf(filtCliente.toLowerCase())<0)return false;
+    if(filtRancho&&(r.rancho||"").toLowerCase().indexOf(filtRancho.toLowerCase())<0)return false;
+    if(filtMalla&&String(r.malla||"").indexOf(filtMalla)<0)return false;
+    return true;
+  });
+
+  var fechas=invFilt.reduce(function(arr,r){
+    var f=r.fechaInventario||r.fecha||"Sin fecha";
+    if(arr.indexOf(f)===-1) arr.push(f);
+    return arr;
+  },[]).sort(function(a,b){ return diasDesde(b)-diasDesde(a); });
+
+  var sInpSt={width:"100%",background:"rgba(0,0,0,0.35)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,padding:"6px 8px",color:"#fff",fontFamily:"system-ui",fontSize:12,outline:"none"};
+  return (
+    <div>
+      {/* Filtros */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:12,padding:"10px",background:"rgba(255,255,255,0.03)",borderRadius:10,border:"1px solid rgba(255,255,255,0.07)"}}>
+        <div>
+          <div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>Fecha</div>
+          <input type="text" placeholder="Ej: 04/07" value={filtFecha} onChange={function(e){setFiltFecha(e.target.value);}} style={sInpSt}/>
+        </div>
+        <div>
+          <div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>Cliente</div>
+          <input type="text" placeholder="Nombre" value={filtCliente} onChange={function(e){setFiltCliente(e.target.value);}} style={sInpSt}/>
+        </div>
+        <div>
+          <div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>Rancho</div>
+          <input type="text" placeholder="Fepo..." value={filtRancho} onChange={function(e){setFiltRancho(e.target.value);}} style={sInpSt}/>
+        </div>
+        <div>
+          <div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>Malla</div>
+          <input type="text" placeholder="5..." value={filtMalla} onChange={function(e){setFiltMalla(e.target.value);}} style={sInpSt}/>
+        </div>
+        {hayFiltros&&<div style={{gridColumn:"span 2"}}>
+          <button onClick={function(){setFiltFecha("");setFiltCliente("");setFiltRancho("");setFiltMalla("");}}
+            style={{padding:"4px 12px",background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.25)",borderRadius:6,color:"#ef4444",fontFamily:"system-ui",fontSize:11,fontWeight:700,cursor:"pointer"}}>Limpiar filtros</button>
+          <span style={{fontSize:10,color:"#8899aa",marginLeft:8}}>{invFilt.length} de {inventario.length} items</span>
+        </div>}
+      </div>
+
+      {invFilt.length===0&&<div style={{textAlign:"center",padding:20,color:"#8899aa",fontSize:12}}>Sin resultados</div>}
+      {fechas.map(function(fecha){
+        var items=invFilt.filter(function(r){return (r.fechaInventario||r.fecha||"Sin fecha")===fecha;});
+        var dias=diasDesde(fecha);
+        var alarmaGrupo=dias>=DIAS_ALARMA;
+        var totalFecha=items.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+        return (
+          <div key={fecha} style={{marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 8px",background:alarmaGrupo?"rgba(239,68,68,0.12)":"rgba(255,255,255,0.05)",border:"1px solid "+(alarmaGrupo?"rgba(239,68,68,0.4)":"rgba(255,255,255,0.1)"),borderRadius:6,marginBottom:6}}>
+              <div>
+                <span style={{fontSize:11,fontWeight:700,color:alarmaGrupo?"#ef4444":"#ffffff"}}>{fecha}</span>
+                <span style={{fontSize:12,color:"#8899aa",marginLeft:6}}>({dias} dia{dias!==1?"s":""})</span>
+                {alarmaGrupo&&<span style={{marginLeft:6,fontSize:12,color:"#ef4444",fontWeight:700}}>SACAR YA</span>}
+              </div>
+              <span style={{fontSize:12,fontWeight:700,color:alarmaGrupo?"#ef4444":col,fontFamily:"Georgia,serif"}}>{totalFecha} cajas</span>
+            </div>
+            {items.map(function(r){
+              var alarma=dias>=DIAS_ALARMA;
+              return (
+                <div key={r.id} onClick={function(){if(!modoSeleccionInv)return; var idx=seleccionadosInv.indexOf(r.id); if(idx>=0){setSeleccionadosInv(seleccionadosInv.filter(function(x){return x!==r.id;}));}else{setSeleccionadosInv(seleccionadosInv.concat([r.id]));};}} style={{background:seleccionadosInv.indexOf(r.id)>=0?"rgba(245,158,11,0.1)":"rgba(0,0,0,0.2)",border:"1px solid "+(seleccionadosInv.indexOf(r.id)>=0?"rgba(245,158,11,0.4)":alarma?"rgba(239,68,68,0.3)":"rgba(255,255,255,0.06)"),borderRadius:7,padding:"7px 10px",marginBottom:4,marginLeft:8,cursor:modoSeleccionInv?"pointer":"default",display:"flex",alignItems:"center",gap:8}}>
+                  {modoSeleccionInv&&(
+                    <div style={{width:18,height:18,borderRadius:4,border:"2px solid "+(seleccionadosInv.indexOf(r.id)>=0?"#f59e0b":"rgba(255,255,255,0.2)"),background:seleccionadosInv.indexOf(r.id)>=0?"#f59e0b":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {seleccionadosInv.indexOf(r.id)>=0&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>v</span>}
+                    </div>
+                  )}
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,fontWeight:700,color:alarma?"#ef4444":"#ffffff"}}>{r.calidad}{r.subcalidad?" / "+r.subcalidad:""}{r.presentacion?" - "+r.presentacion:""}</div>
+                    <div style={{fontSize:13,color:"#b0bec5"}}>{r.cliente||"Sin cliente"}</div>
+                    <div style={{fontSize:12,color:"#8899aa"}}>{r.rancho} . M{r.malla}{r.folio?" . "+r.folio:""}</div>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <div style={{fontSize:18,fontWeight:900,color:alarma?"#ef4444":col,fontFamily:"Georgia,serif"}}>{r.cajas}</div>
+                    {!modoSeleccionInv&&(function(){
+                      var rSnap=r;
+                      return(
+                        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                          <button onClick={function(e){e.stopPropagation();setModalBaja({itemId:rSnap.id,tipo:"inv"});}}
+                            style={{background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:5,padding:"3px 7px",color:"#fbbf24",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Baja</button>
+                          <button onClick={function(e){e.stopPropagation();if(onBorrar)onBorrar(rSnap.id,"inv");}}
+                            style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:5,padding:"3px 7px",color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar</button>
+                          {onDescontar&&<button onClick={function(e){e.stopPropagation();onDescontar(rSnap);}}
+                            style={{background:"rgba(96,165,250,0.1)",border:"1px solid rgba(96,165,250,0.3)",borderRadius:5,padding:"3px 7px",color:"#60a5fa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>-Pedido</button>}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PedsCerrados(props){
+  var pedidosCerrados=props.pedidosCerrados; var prod=props.prod; var registros=props.registros;
+  var col=props.col; var setPedidosCerrados=props.setPedidosCerrados; var fbSet=props.fbSet; var PED_CERR_KEY=props.PED_CERR_KEY;
+  var pedsCerr=Array.isArray(pedidosCerrados[prod])?pedidosCerrados[prod]:[];
+  var stateAbierto=React.useState(null); var abierto=stateAbierto[0]; var setAbierto=stateAbierto[1];
+  if(!pedsCerr.length) return <div style={{textAlign:"center",padding:30,color:"#8899aa",fontSize:12}}>Sin pedidos cerrados</div>;
+  return (
+    <div>
+      {pedsCerr.map(function(ped){
+        // Calcular cajas hechas: coincidir por cliente Y presentacion si existe
+        var regsMatch=registros.filter(function(r){
+          if(r.cliente!==ped.cliente)return false;
+          if(ped.presentacion&&r.presentacion&&r.presentacion!==ped.presentacion)return false;
+          return true;
+        });
+        var cajasHechas=regsMatch.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+        var pedCajas=parseInt(ped.cajas)||1;
+        var pct=Math.min(100,Math.round(cajasHechas/pedCajas*100));
+        var completo=cajasHechas>=pedCajas;
+        var isAbierto=abierto===ped.id;
+        // Desglose por rancho+malla
+        var desglose={};
+        regsMatch.forEach(function(r){
+          var k=(r.rancho||"?")+"/M"+(r.malla||"?");
+          if(!desglose[k])desglose[k]=0;
+          desglose[k]+=(parseInt(r.cajas)||0);
+        });
+        return (
+          <div key={ped.id} style={{marginBottom:8}}>
+            <div onClick={function(){setAbierto(isAbierto?null:ped.id);}}
+              style={{background:"rgba(0,0,0,0.25)",border:"1px solid "+(isAbierto?col+"44":"rgba(255,255,255,0.07)"),borderRadius:isAbierto?"8px 8px 0 0":"8px",padding:"10px 12px",cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#ffffff"}}>{ped.cliente}</div>
+                <div style={{fontSize:11,color:"#8899aa"}}>{ped.fechaCierre}</div>
+              </div>
+              {ped.presentacion&&<div style={{fontSize:12,color:"#b0bec5",marginBottom:5}}>{ped.presentacion}</div>}
+              <div style={{height:8,background:"rgba(255,255,255,0.07)",borderRadius:4,overflow:"hidden",marginBottom:4}}>
+                <div style={{height:"100%",width:pct+"%",background:completo?"#22c55e":col,borderRadius:4}}/>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11}}>
+                <span style={{color:"#b0bec5"}}>{cajasHechas} / {ped.cajas} cajas ({pct}%)</span>
+                <span style={{color:completo?"#22c55e":"#f59e0b",fontWeight:700}}>{completo?"Completado":"Parcial"}</span>
+              </div>
+              <div style={{fontSize:9,color:"#555",marginTop:3,textAlign:"right"}}>Toca para ver desglose</div>
+            </div>
+            {isAbierto&&(
+              <div style={{background:"rgba(0,0,0,0.35)",border:"1px solid "+col+"33",borderTop:"none",borderRadius:"0 0 8px 8px",padding:"12px"}}>
+                <div style={{fontSize:9,fontWeight:900,letterSpacing:2,color:col,opacity:0.7,marginBottom:8}}>DESGLOSE POR RANCHO Y MALLA</div>
+                {Object.keys(desglose).length===0?(
+                  <div style={{fontSize:11,color:"#555"}}>Sin registros asociados a este pedido</div>
+                ):(
+                  Object.keys(desglose).map(function(k){return(
+                    <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                      <span style={{fontSize:12,color:"#b0bec5"}}>{k}</span>
+                      <span style={{fontSize:13,fontWeight:700,color:col,fontFamily:"Georgia,serif"}}>{desglose[k]} cajas</span>
+                    </div>
+                  );})
+                )}
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:8,paddingTop:6,borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+                  <span style={{fontSize:11,color:"#8899aa"}}>Total registrado</span>
+                  <span style={{fontSize:14,fontWeight:900,color:col,fontFamily:"Georgia,serif"}}>{cajasHechas} cajas</span>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <button onClick={async function(){
+        var pc2={}; Object.keys(pedidosCerrados).forEach(function(k){pc2[k]=pedidosCerrados[k];}); pc2[prod]=[];
+        setPedidosCerrados(pc2); await fbSet(PED_CERR_KEY,pc2);
+      }} style={{width:"100%",padding:"8px",marginTop:8,background:"transparent",border:"1px solid rgba(239,68,68,0.3)",borderRadius:6,color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar pedidos cerrados</button>
+    </div>
+  );
+}
+
+function App(){
+  var stateHist = useState(false); var vistaHist=stateHist[0]; var setVistaHist=stateHist[1];
+  var stateProd = useState(null); var prod=stateProd[0]; var setProd=stateProd[1];
+  var stateDatos = useState(initDatos()); var datos=stateDatos[0]; var setDatos=stateDatos[1];
+  var stateHist2 = useState([]); var historial=stateHist2[0]; var setHistorial=stateHist2[1];
+  var stateVistaAcum = useState(false); var vistaAcum=stateVistaAcum[0]; var setVistaAcum=stateVistaAcum[1];
+  var stateFFecha = useState(""); var filtroFecha=stateFFecha[0]; var setFiltroFecha=stateFFecha[1];
+  var stateFCliHist = useState(""); var filtroClienteHist=stateFCliHist[0]; var setFiltroClienteHist=stateFCliHist[1];
+  var stateFProdHist = useState(""); var filtroProdHist=stateFProdHist[0]; var setFiltroProdHist=stateFProdHist[1];
+  var stateFBajaFecha = useState(""); var filtroBajaFecha=stateFBajaFecha[0]; var setFiltroBajaFecha=stateFBajaFecha[1];
+  var stateFBajaCli = useState(""); var filtroBajaCli=stateFBajaCli[0]; var setFiltroBajaCli=stateFBajaCli[1];
+  var stateFBajaCal = useState(""); var filtroBajaCal=stateFBajaCal[0]; var setFiltroBajaCal=stateFBajaCal[1];
+  var stateFBajaPct = useState(""); var filtroBajaPct=stateFBajaPct[0]; var setFiltroBajaPct=stateFBajaPct[1];
+  var stateEditBaja = useState(null); var editBaja=stateEditBaja[0]; var setEditBaja=stateEditBaja[1];
+  var stateItemDesc = useState(null); var itemDescontar=stateItemDesc[0]; var setItemDescontar=stateItemDesc[1];
+  var stateJalarPed = useState(null); var jalarPed=stateJalarPed[0]; var setJalarPed=stateJalarPed[1];
+  var stateSelJalar = useState([]); var selJalar=stateSelJalar[0]; var setSelJalar=stateSelJalar[1];
+  var stateFCliAcum = useState(""); var filtroClienteAcum=stateFCliAcum[0]; var setFiltroClienteAcum=stateFCliAcum[1];
+  var statePed = useState({}); var pedidos=statePed[0]; var setPedidos=statePed[1];
+  var stateLoad = useState(true); var loading=stateLoad[0]; var setLoading=stateLoad[1];
+  var statePend = useState(false); var hayPendiente=statePend[0]; var setHayPendiente=statePend[1];
+  var stateTab = useState("registro"); var tab=stateTab[0]; var setTab=stateTab[1];
+  var stateForm = useState(null); var form=stateForm[0]; var setForm=stateForm[1];
+  var stateBaja = useState(null); var modalBaja=stateBaja[0]; var setModalBaja=stateBaja[1];
+  var stateMot = useState("Reproceso"); var motivoBaja=stateMot[0]; var setMotivoBaja=stateMot[1];
+  var stateRep = useState(""); var presentacionReproceso=stateRep[0]; var setPresentacionReproceso=stateRep[1];
+  var stateMP = useState(false); var modalPedido=stateMP[0]; var setModalPedido=stateMP[1];
+  var stateFP = useState(null); var formPedido=stateFP[0]; var setFormPedido=stateFP[1];
+  var stateCC = useState(false); var confirmCerrar=stateCC[0]; var setConfirmCerrar=stateCC[1];
+  var stateCBH = useState(false); var confirmBorrarHist=stateCBH[0]; var setConfirmBorrarHist=stateCBH[1];
+  var stateReset = useState(false); var confirmReset=stateReset[0]; var setConfirmReset=stateReset[1];
+  var stateAuth = useState(false); var autenticado=stateAuth[0]; var setAutenticado=stateAuth[1];
+  var stateMPin = useState(false); var modalPin=stateMPin[0]; var setModalPin=stateMPin[1];
+  var statePinI = useState(""); var pinInput=statePinI[0]; var setPinInput=statePinI[1];
+  var statePinE = useState(false); var pinError=statePinE[0]; var setPinError=statePinE[1];
+  var stateAccPend = useState(null); var accionPendiente=stateAccPend[0]; var setAccionPendiente=stateAccPend[1];
+  var stateCerrarPed = useState(null); var confirmCerrarPed=stateCerrarPed[0]; var setConfirmCerrarPed=stateCerrarPed[1];
+  var stateErrForm = useState([]); var erroresForm=stateErrForm[0]; var setErroresForm=stateErrForm[1];
+  var stateModoSel = useState(false); var modoSeleccion=stateModoSel[0]; var setModoSeleccion=stateModoSel[1];
+  var stateSeleccion = useState([]); var seleccionados=stateSeleccion[0]; var setSeleccionados=stateSeleccion[1];
+  var stateModalBajaMulti = useState(false); var modalBajaMulti=stateModalBajaMulti[0]; var setModalBajaMulti=stateModalBajaMulti[1];
+  var stateMotivoBajaMulti = useState("Merma"); var motivoBajaMulti=stateMotivoBajaMulti[0]; var setMotivoBajaMulti=stateMotivoBajaMulti[1];
+  var stateRepMulti = useState(""); var presentacionReprocesoMulti=stateRepMulti[0]; var setPresentacionReprocesoMulti=stateRepMulti[1];
+  var stateModoSelInv = useState(false); var modoSeleccionInv=stateModoSelInv[0]; var setModoSeleccionInv=stateModoSelInv[1];
+  var stateSelInv = useState([]); var seleccionadosInv=stateSelInv[0]; var setSeleccionadosInv=stateSelInv[1];
+  var stateModalBajaInv = useState(false); var modalBajaInv=stateModalBajaInv[0]; var setModalBajaInv=stateModalBajaInv[1];
+  var stateMotivoBajaInv = useState("Merma"); var motivoBajaInv=stateMotivoBajaInv[0]; var setMotivoBajaInv=stateMotivoBajaInv[1];
+  var stateRepInv = useState(""); var presentacionReprocesoInv=stateRepInv[0]; var setPresentacionReprocesoInv=stateRepInv[1];
+  var statePedCerrados = useState({}); var pedidosCerrados=statePedCerrados[0]; var setPedidosCerrados=statePedCerrados[1];
+  var PED_CERR_KEY="pedidos-cerrados-v1";
+var PIN_PROD = "9876";
+  var stateFC = useState(""); var filtroCliente=stateFC[0]; var setFiltroCliente=stateFC[1];
+  var stateEditReg = useState(null); var editReg=stateEditReg[0]; var setEditReg=stateEditReg[1];
+  var stateEditPin = useState(""); var editPin=stateEditPin[0]; var setEditPin=stateEditPin[1];
+  var stateEditPinErr = useState(false); var editPinErr=stateEditPinErr[0]; var setEditPinErr=stateEditPinErr[1];
+  var stateEditAuth = useState(false); var editAuth=stateEditAuth[0]; var setEditAuth=stateEditAuth[1];
+  var stateEditPed = useState(null); var editPed=stateEditPed[0]; var setEditPed=stateEditPed[1];
+  var stateCfg = useState({clientes_extra:[],pcts_extra:{}});var cfg=stateCfg[0];var setCfg=stateCfg[1];
+  var stateModalCfg = useState(false);var modalCfg=stateModalCfg[0];var setModalCfg=stateModalCfg[1];
+  var stateCfgProd = useState("Persa");var cfgProd=stateCfgProd[0];var setCfgProd=stateCfgProd[1];
+  var stateNuevoClt = useState("");var nuevoClt=stateNuevoClt[0];var setNuevoClt=stateNuevoClt[1];
+  var stateNuevoPct = useState("");var nuevoPct=stateNuevoPct[0];var setNuevoPct=stateNuevoPct[1];
+  var stateFR = useState(""); var filtroRancho=stateFR[0]; var setFiltroRancho=stateFR[1];
+  var stateFM = useState(""); var filtroMalla=stateFM[0]; var setFiltroMalla=stateFM[1];
+
+  var darBajaMultipleInventario = async function(producto){
+    if(!seleccionadosInv.length) return;
+    var nuevo2={}; Object.keys(datos).forEach(function(k){nuevo2[k]=datos[k];});
+    var linea2={
+      registros:(datos[producto]&&datos[producto].registros)||[],
+      inventario:(datos[producto]&&datos[producto].inventario)||[]
+    };
+    // Si es reproceso agregar nuevos items
+    if(motivoBajaInv==="Reproceso"&&presentacionReprocesoInv){
+      seleccionadosInv.forEach(function(id){
+        var item=linea2.inventario.filter(function(r){return r.id===id;})[0];
+        if(item){
+          var repro={}; Object.keys(item).forEach(function(k){repro[k]=item[k];});
+          repro.id=Date.now()+Math.random(); repro.presentacion=presentacionReprocesoInv;
+          repro.fechaInventario=hoy(); repro.esReproceso=true;
+          linea2.inventario=[repro].concat(linea2.inventario);
+        }
+      });
+    }
+    // Quitar los seleccionados del inventario
+    linea2.inventario=linea2.inventario.filter(function(r){return seleccionadosInv.indexOf(r.id)===-1;});
+    nuevo2[producto]=linea2;
+    await guardar(nuevo2);
+    setSeleccionadosInv([]); setModoSeleccionInv(false); setModalBajaInv(false);
+    setMotivoBajaInv("Merma"); setPresentacionReprocesoInv("");
+  };
+
+  var darBajaMultiple = async function(producto){
+    if(!seleccionados.length) return;
+    var nuevo2={}; Object.keys(datos).forEach(function(k){nuevo2[k]=datos[k];});
+    var linea2={
+      registros:(datos[producto]&&datos[producto].registros)||[],
+      inventario:(datos[producto]&&datos[producto].inventario)||[]
+    };
+    // Marcar registros seleccionados como bajados
+    linea2.registros=linea2.registros.map(function(r){
+      if(seleccionados.indexOf(r.id)===-1) return r;
+      var n={}; Object.keys(r).forEach(function(k){n[k]=r[k];});
+      n.bajado=true; n.motivoBaja=motivoBajaMulti;
+      if(motivoBajaMulti==="Reproceso"&&presentacionReprocesoMulti) n.reprocesadoComo=presentacionReprocesoMulti;
+      return n;
+    });
+    // Si es reproceso, agregar al inventario con nueva presentacion
+    if(motivoBajaMulti==="Reproceso"&&presentacionReprocesoMulti){
+      seleccionados.forEach(function(id){
+        var item=linea2.registros.filter(function(r){return r.id===id;})[0];
+        if(item){
+          var repro={}; Object.keys(item).forEach(function(k){repro[k]=item[k];});
+          repro.id=Date.now()+Math.random(); repro.presentacion=presentacionReprocesoMulti;
+          repro.fechaInventario=hoy(); repro.esReproceso=true; repro.bajado=false;
+          linea2.inventario=[repro].concat(linea2.inventario);
+        }
+      });
+    }
+    nuevo2[producto]=linea2;
+    await guardar(nuevo2);
+    setSeleccionados([]); setModoSeleccion(false); setModalBajaMulti(false);
+    setMotivoBajaMulti("Merma"); setPresentacionReprocesoMulti("");
+  };
+
+  function requerirPin(accion){
+    if(autenticado){ accion(); return; }
+    setAccionPendiente(function(){ return accion; });
+    setPinInput(""); setPinError(false); setModalPin(true);
+  }
+  function confirmarPin(){
+    if(pinInput===PIN_PROD){
+      setAutenticado(true); setModalPin(false); setPinInput("");
+      if(accionPendiente){ accionPendiente(); setAccionPendiente(null); }
+    } else {
+      setPinError(true); setPinInput("");
+    }
+  }
+
+  var cargar = async function(){
+    try{
+      var d=await fbGet(PROD_KEY);
+      if(d&&typeof d==="object"){
+        var merged={}; 
+        PRODUCTOS.forEach(function(p){
+          merged[p]={
+            recibido:0,
+            registros:(d[p]&&d[p].registros)||[],
+            inventario:(d[p]&&d[p].inventario)||[],
+          };
+        });
+        setDatos(merged);
+      } else { setDatos(initDatos()); }
+    }catch(e){ setDatos(initDatos()); }
+    try{ var h=await fbGet("prod-hist-v3"); 
+      if(h&&typeof h==="object"&&!Array.isArray(h)){
+        var ha=Object.keys(h).map(function(k){return h[k];}).filter(function(x){return !x.esMaradorTurno;});
+        ha.sort(function(a,b){return (b.tsRegistro||0)-(a.tsRegistro||0);});
+        setHistorial(ha);
+      }
+    }catch(e){}
+    try{ var p=await fbGet(PED_KEY); if(p&&typeof p==="object") setPedidos(p); }catch(e){}
+    try{ var pc=await fbGet("pedidos-cerrados-v1"); if(pc&&typeof pc==="object") setPedidosCerrados(pc); }catch(e){}
+    try{ var cf=await fbGet(CFG_KEY); if(cf&&typeof cf==="object") setCfg({clientes_extra:cf.clientes_extra||[],pcts_extra:cf.pcts_extra||{}}); }catch(e){}
+    setLoading(false);
+    // Verificar si hay pendientes
+    try{ if(localStorage.getItem(PROD_KEY+"_pending"))setHayPendiente(true); }catch(e){}
+  };
+
+  var guardar = async function(nuevo){
+    setDatos(nuevo);
+    var ok=await fbSet(PROD_KEY,nuevo);
+    setHayPendiente(!ok);
+  };
+
+  // Funcion para reintentar sincronizacion manualmente
+  var sincronizar = async function(){
+    try{
+      var local=localStorage.getItem(PROD_KEY);
+      if(!local)return;
+      var v=JSON.parse(local);
+      var r=await fetch(FB_URL+"/"+PROD_KEY+".json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(v)});
+      if(r.ok){localStorage.removeItem(PROD_KEY+"_pending");setHayPendiente(false);}
+    }catch(e){}
+  };
+
+  useEffect(function(){ cargar(); },[]);
+  useEffect(function(){
+    // Reintento automatico cada 45 segundos si hay pendientes
+    var t=setInterval(function(){
+      try{
+        if(localStorage.getItem(PROD_KEY+"_pending")){sincronizar();}
+      }catch(e){}
+    },45000);
+    return function(){ clearInterval(t); };
+  },[]);
+
+  var setF = function(k,v){ setForm(function(f){ var n={}; Object.keys(f).forEach(function(fk){n[fk]=f[fk];}); n[k]=v; return n; }); };
+
+  var HIST3_KEY = "prod-hist-v3";
+
+  var guardarPalletHistorial = async function(pallet){
+    try{
+      var url=FB_URL+"/"+HIST3_KEY+"/h"+pallet.id+".json";
+      await fetch(url,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(pallet)});
+    }catch(e){}
+  };
+
+  var registrar = async function(){
+    if(!form) return;
+    // Validacion completa
+    var errores=[];
+    if(!form.calidad) errores.push("Falta calidad");
+    if(!form.cajas||parseInt(form.cajas)<=0) errores.push("Falta numero de cajas");
+    if(!form.cliente) errores.push("Falta cliente");
+    if(!form.rancho) errores.push("Falta rancho");
+    if(!form.malla) errores.push("Falta malla");
+    if(form.producto==="Persa"){
+      if(!form.presentacion) errores.push("Falta presentacion");
+      if(form.presentacion==="20lb"&&!form.subcalidad) errores.push("Falta sub-calidad (FCY/XF/Choice/ML/MS)");
+    } else if(form.producto==="Europeo"){
+      if(!form.presentacion) errores.push("Falta presentacion");
+      if((form.presentacion==="12ct"||form.presentacion==="24ct")&&!form.tamano) errores.push("Falta tamano (Small/Mediano)");
+    } else {
+      if(!form.presentacion) errores.push("Falta presentacion");
+    }
+    if(errores.length>0){ setErroresForm(errores); return; }
+    setErroresForm([]);
+    var folio=await siguienteFolio();
+    var pallet={id:Date.now(),folio:folio};
+    Object.keys(form).forEach(function(k){pallet[k]=form[k];});
+    pallet.cajas=parseInt(form.cajas);
+    pallet.fecha=form.fecha||fechaLocalISO();
+    pallet.fechaInventario=pallet.fecha;
+    pallet.tsRegistro=Date.now();
+    // Anti-duplicado por folio
+    var existente=(datos[form.producto]&&datos[form.producto].inventario)||[];
+    if(existente.find(function(r){return r.folio===folio;})){
+      setErroresForm(["Folio duplicado. No se guardo."]);return;
+    }
+    // Guardar directo en inventario
+    var nd={}; Object.keys(datos).forEach(function(k){nd[k]=datos[k];});
+    nd[form.producto]={
+      registros:[],
+      inventario:[pallet].concat((datos[form.producto]&&datos[form.producto].inventario)||[]),
+    };
+    await guardar(nd);
+    // Guardar en historial permanente
+    await guardarPalletHistorial(pallet);
+    setForm(initForm(form.producto));
+  };
+
+  var darBaja = async function(){
+    if(!modalBaja) return;
+    var itemId=modalBaja.itemId; var tipo=modalBaja.tipo; var producto=modalBaja.producto;
+    var nuevo2={}; Object.keys(datos).forEach(function(k){nuevo2[k]=datos[k];});
+    var linea2={registros:(datos[producto]&&datos[producto].registros)||[],inventario:(datos[producto]&&datos[producto].inventario)||[]};
+    if(tipo==="reg"){
+      var item=linea2.registros.filter(function(r){return r.id===itemId;})[0];
+      // El registro SIEMPRE permanece para el conteo del dia
+      // Solo lo marcamos como "bajado" para que no aparezca en inventario
+      linea2.registros=linea2.registros.map(function(r){
+        if(r.id!==itemId) return r;
+        var n={}; Object.keys(r).forEach(function(k){n[k]=r[k];});
+        n.bajado=true; n.motivoBaja=motivoBaja;
+        if(motivoBaja==="Reproceso"&&presentacionReproceso) n.reprocesadoComo=presentacionReproceso;
+        return n;
+      });
+      // Si es reproceso, agregar nueva entrada al inventario
+      if(motivoBaja==="Reproceso"&&presentacionReproceso&&item){
+        var repro={}; Object.keys(item).forEach(function(k){repro[k]=item[k];});
+        repro.id=Date.now(); repro.presentacion=presentacionReproceso; repro.fechaInventario=hoy(); repro.esReproceso=true;
+        linea2.inventario=[repro].concat(linea2.inventario);
+      }
+    } else {
+      linea2.inventario=linea2.inventario.filter(function(r){return r.id!==itemId;});
+    }
+    nuevo2[producto]=linea2;
+    await guardar(nuevo2);
+    setModalBaja(null); setMotivoBaja("Reproceso"); setPresentacionReproceso("");
+  };
+
+  var cerrarDia = async function(){
+    if(!prod) return;
+    // Guardar marcador de fin de turno en historial
+    var marcador={id:Date.now(),folio:"TURNO-CERRADO",esMaradorTurno:true,
+      fecha:fechaLocalISO(),hora:horaActual(),producto:prod,tsRegistro:Date.now()};
+    await guardarPalletHistorial(marcador);
+    // Avanzar fecha del formulario al dia siguiente
+    var dActual=new Date(form.fecha+"T12:00:00");
+    dActual.setDate(dActual.getDate()+1);
+    var m=dActual.getMonth()+1;var dd=dActual.getDate();
+    var siguienteFechaStr=dActual.getFullYear()+"-"+(m<10?"0":"")+m+"-"+(dd<10?"0":"")+dd;
+    setForm(function(f){var nf={}; Object.keys(f).forEach(function(k){nf[k]=f[k];}); nf.fecha=siguienteFechaStr; return nf;});
+    setConfirmCerrar(false);
+    setTab("inventario");
+  };
+
+  var inp = {width:"100%",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"7px 10px",background:"rgba(0,0,0,0.3)",color:"#ffffff",fontFamily:"system-ui",fontSize:13,outline:"none"};
+  var lbl = {fontSize:11,color:"#8899aa",textTransform:"uppercase",letterSpacing:1.5,marginBottom:3};
+
+  // -- HISTORIAL --------------------------------------------------------------
+  var sHistFiltros=useState({fecha:"",cliente:"",producto:"",rancho:"",malla:"",calidad:"",presentacion:""});
+  var histFiltros=sHistFiltros[0];var setHistFiltros=sHistFiltros[1];
+  function setHF(k,v){setHistFiltros(function(f){var n=Object.assign({},f);n[k]=v;return n;});}
+  if(vistaHist){
+    var histFilt=historial.filter(function(h){
+      if(histFiltros.fecha&&(h.fecha||"").indexOf(histFiltros.fecha)<0)return false;
+      if(histFiltros.cliente&&(h.cliente||"").toLowerCase().indexOf(histFiltros.cliente.toLowerCase())<0)return false;
+      if(histFiltros.producto&&h.producto!==histFiltros.producto)return false;
+      if(histFiltros.rancho&&(h.rancho||"").toLowerCase().indexOf(histFiltros.rancho.toLowerCase())<0)return false;
+      if(histFiltros.malla&&String(h.malla||"").indexOf(histFiltros.malla)<0)return false;
+      if(histFiltros.calidad&&(h.calidad||"").toLowerCase().indexOf(histFiltros.calidad.toLowerCase())<0)return false;
+      if(histFiltros.presentacion&&(h.presentacion||"").toLowerCase().indexOf(histFiltros.presentacion.toLowerCase())<0)return false;
+      return true;
+    });
+    var totalHistFilt=histFilt.reduce(function(s,h){return s+(parseInt(h.cajas)||0);},0);
+    var sInpH={width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,padding:"6px 8px",color:"#fff",fontFamily:"system-ui",fontSize:12,outline:"none"};
+    return (
+      <React.Fragment>
+      <div style={{background:"#0d1a12",minHeight:"100vh",color:"#f0ede8",fontFamily:"system-ui"}}>
+        <div style={{maxWidth:600,margin:"0 auto",padding:"14px 12px 80px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,borderBottom:"1px solid rgba(255,255,255,0.07)",paddingBottom:10}}>
+            <button onClick={function(){setVistaHist(false);}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 10px",color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Volver</button>
+            <div style={{fontSize:16,fontWeight:900,color:"#ffffff",flex:1}}>HISTORIAL</div>
+            {histFilt.length>0&&<span style={{fontSize:12,color:"#22c55e",fontWeight:900,fontFamily:"Georgia,serif"}}>{totalHistFilt} cajas</span>}
+          </div>
+          {/* 6 filtros */}
+          <div style={{background:"rgba(0,0,0,0.25)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
+              <div><div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:2,textTransform:"uppercase"}}>Fecha</div><input style={sInpH} placeholder="Ej: 2026-07" value={histFiltros.fecha} onChange={function(e){setHF("fecha",e.target.value);}}/></div>
+              <div><div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:2,textTransform:"uppercase"}}>Cliente</div><input style={sInpH} placeholder="Nombre" value={histFiltros.cliente} onChange={function(e){setHF("cliente",e.target.value);}}/></div>
+              <div><div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:2,textTransform:"uppercase"}}>Producto</div>
+                <select style={Object.assign({},sInpH,{background:"rgba(0,0,0,0.4)"})} value={histFiltros.producto} onChange={function(e){setHF("producto",e.target.value);}}>
+                  <option value="">Todos</option>
+                  {PRODUCTOS.map(function(p){return <option key={p}>{p}</option>;})}
+                </select>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+              <div><div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:2,textTransform:"uppercase"}}>Rancho</div><input style={sInpH} placeholder="Fepo..." value={histFiltros.rancho} onChange={function(e){setHF("rancho",e.target.value);}}/></div>
+              <div><div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:2,textTransform:"uppercase"}}>Malla</div><input style={sInpH} placeholder="5..." value={histFiltros.malla} onChange={function(e){setHF("malla",e.target.value);}}/></div>
+              <div><div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:2,textTransform:"uppercase"}}>Calidad</div><input style={sInpH} placeholder="Primera..." value={histFiltros.calidad} onChange={function(e){setHF("calidad",e.target.value);}}/></div>
+            </div>
+          </div>
+          <div style={{marginBottom:10}}><div style={{fontSize:9,color:"#8899aa",fontWeight:700,marginBottom:2,textTransform:"uppercase"}}>Presentacion</div><input style={sInpH} placeholder="18ct, 20lb..." value={histFiltros.presentacion} onChange={function(e){setHF("presentacion",e.target.value);}}/></div>
+          {histFilt.length===0
+            ?<div style={{textAlign:"center",padding:40,color:"#8899aa"}}>Sin registros con esos filtros</div>
+            :histFilt.map(function(h){
+              var col=COLORES[h.producto]||"#b0bec5";
+              return(
+                <div key={h.id} style={{background:"rgba(0,0,0,0.25)",border:"1px solid "+(col+"33"),borderRadius:9,padding:"10px 12px",marginBottom:6}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:12,fontWeight:900,color:col}}>{h.producto} {h.presentacion?". "+h.presentacion:""} {h.calidad?". "+h.calidad:""}</div>
+                      <div style={{fontSize:12,color:"#b0bec5",marginTop:2}}>{h.cliente||"Sin cliente"}</div>
+                      <div style={{fontSize:11,color:"#8899aa"}}>{h.rancho} . M{h.malla} . {h.fecha} . {h.folio||""}</div>
+                    </div>
+                    <div style={{fontSize:22,fontWeight:900,color:col,fontFamily:"Georgia,serif",marginLeft:10}}>{h.cajas}</div>
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
+      </div>
+      </React.Fragment>
+    );
+  }
+
+  if(vistaAcum){
+    // Agrupar TODO el historial por cliente, sumando producto/presentacion/calidad
+    var acumPorCliente={};
+    historial.forEach(function(h){
+      (h.registros||[]).forEach(function(r){
+        var c=r.cliente||"Sin cliente";
+        if(!acumPorCliente[c])acumPorCliente[c]={cliente:c,totalCajas:0,dias:[]};
+        var cajas=parseInt(r.cajas)||0;
+        acumPorCliente[c].totalCajas+=cajas;
+        acumPorCliente[c].dias.push({fecha:h.fecha,producto:h.producto,presentacion:r.presentacion||"",calidad:r.calidad||"",cajas:cajas});
+      });
+    });
+    var listaClientesAcum=Object.keys(acumPorCliente).sort(function(a,b){return acumPorCliente[b].totalCajas-acumPorCliente[a].totalCajas;});
+    var clienteSeleccionado=filtroClienteAcum?acumPorCliente[filtroClienteAcum]:null;
+
+    return (
+      <React.Fragment>
+      <div style={{background:"#0d1a12",minHeight:"100vh",color:"#f0ede8",fontFamily:"system-ui"}}>
+        <div style={{maxWidth:600,margin:"0 auto",padding:"14px 12px 60px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,borderBottom:"1px solid rgba(255,255,255,0.07)",paddingBottom:10}}>
+            <button onClick={function(){setVistaAcum(false);setVistaHist(true);}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 10px",color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Volver</button>
+            <div style={{fontSize:16,fontWeight:900,color:"#ffffff",flex:1}}>ACUMULADO DE TEMPORADA</div>
+          </div>
+
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:"#8899aa",marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>Filtrar por cliente</div>
+            <select value={filtroClienteAcum} onChange={function(e){setFiltroClienteAcum(e.target.value);}}
+              style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"8px 10px",color:"#ffffff",fontFamily:"system-ui",fontSize:14,outline:"none"}}>
+              <option value="">-- Todos los clientes --</option>
+              {listaClientesAcum.map(function(c){return <option key={c} value={c}>{c}</option>;})}
+            </select>
+          </div>
+
+          {!listaClientesAcum.length
+            ? <div style={{textAlign:"center",padding:40,color:"#8899aa"}}>Aun no hay historial acumulado</div>
+            : clienteSeleccionado
+              ? (
+                <div>
+                  <div style={{background:"rgba(167,139,250,0.1)",border:"2px solid rgba(167,139,250,0.4)",borderRadius:12,padding:"18px",marginBottom:14,textAlign:"center"}}>
+                    <div style={{fontSize:14,color:"#c4b5fd",fontWeight:700}}>{clienteSeleccionado.cliente}</div>
+                    <div style={{fontSize:36,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif"}}>{clienteSeleccionado.totalCajas} cajas</div>
+                    <div style={{fontSize:12,color:"#8899aa"}}>en total esta temporada</div>
+                  </div>
+                  <div style={{fontSize:11,color:"#8899aa",textTransform:"uppercase",letterSpacing:1.5,marginBottom:8,fontWeight:700}}>Detalle por dia</div>
+                  {clienteSeleccionado.dias.map(function(d,i){
+                    var col2=COLORES[d.producto]||"#b0bec5";
+                    return (
+                      <div key={i} style={{background:"rgba(255,255,255,0.03)",borderRadius:8,padding:"10px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:700,color:col2}}>{d.fecha} - {d.producto}</div>
+                          <div style={{fontSize:11,color:"#8899aa"}}>{d.presentacion}{d.calidad?" / "+d.calidad:""}</div>
+                        </div>
+                        <div style={{fontSize:18,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif"}}>{d.cajas}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+              : listaClientesAcum.map(function(c){
+                var a=acumPorCliente[c];
+                return (
+                  <div key={c} onClick={function(){setFiltroClienteAcum(c);}} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"12px 16px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                    <div style={{fontSize:15,fontWeight:700,color:"#ffffff"}}>{c}</div>
+                    <div style={{fontSize:22,fontWeight:900,color:"#a78bfa",fontFamily:"Georgia,serif"}}>{a.totalCajas} cajas</div>
+                  </div>
+                );
+              })
+          }
+        </div>
+      </div>
+      <button onClick={function(){if(!autenticado){setModalPin(true);setPinInput("");setPinError(false);}else{setAutenticado(false);}}} style={{position:"fixed",bottom:16,right:16,zIndex:100,padding:"10px 18px",borderRadius:24,background:autenticado?"#166534":"#1e293b",color:autenticado?"#4ade80":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer",border:"2px solid "+(autenticado?"#22c55e":"#334155"),fontFamily:"system-ui",boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>{autenticado?"Editor":"Lector"}</button>
+      </React.Fragment>
+    );
+  }
+
+  // -- DETALLE PRODUCTO -------------------------------------------------------
+  if(prod){
+    var col=COLORES[prod]||"#b0bec5";
+    var datoProd=datos[prod]||{registros:[],inventario:[]};
+    var registros=(datoProd.registros)||[];
+    var inventario=(datoProd.inventario)||[];
+    // Combinar clientes base con extras guardados en Firebase
+    var cltsExtra=cfg.clientes_extra||[];
+    var cltsBase=CLIENTES[prod]||[];
+    var clts=cltsBase.concat(cltsExtra.filter(function(c){return cltsBase.indexOf(c)<0;}));
+
+    // Presentaciones extra por producto
+    var pctsExtraProd=(cfg.pcts_extra&&cfg.pcts_extra[prod])||[];
+    var esPersa=prod==="Persa";
+    var pedidosActivos=Array.isArray(pedidos[prod])?pedidos[prod]:[];
+    var totalHoy=registros.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+
+    // Opciones del formulario segun producto
+    var persaPcts=esPersa?FLUJO_PERSA.map(function(x){return x.pct;}):[];
+    if(esPersa&&form&&form.cliente==="Lakeway"){
+      persaPcts=persaPcts.concat(["30lb"]);
+    }
+    if(esPersa&&pctsExtraProd.length){
+      persaPcts=persaPcts.concat(pctsExtraProd.filter(function(p){return persaPcts.indexOf(p)<0;}));
+    }
+    var persaPctSel=esPersa&&form?FLUJO_PERSA.filter(function(x){return x.pct===form.presentacion;})[0]:null;
+    var persaCalOpts=persaPctSel?persaPctSel.cals:[];
+    var persaCalSel=persaCalOpts.filter(function(c){return c.cal===(form?form.calidad:"");})[0]||null;
+    var persaSubOpts=persaCalSel&&persaCalSel.subs?persaCalSel.subs:[];
+
+    var otroFlujo=!esPersa?FLUJO_OTROS[prod]:null;
+    var otroCalOpts=otroFlujo?otroFlujo.cals:[];
+    var otroCalSel=otroCalOpts.filter(function(c){return c.cal===(form?form.calidad:"");})[0]||null;
+    var otroPcts=[];
+    if(otroFlujo&&otroFlujo.pcts){
+      if(Array.isArray(otroFlujo.pcts)){
+        otroPcts=otroFlujo.pcts;
+        if(prod==="Slicer"&&form&&form.cliente==="Lakeway"){
+          otroPcts=otroPcts.concat(["62 piezas","Small"]);
+        }
+        if(pctsExtraProd.length){
+          otroPcts=otroPcts.concat(pctsExtraProd.filter(function(p){return otroPcts.indexOf(p)<0;}));
+        }
+      } else if(form&&form.calidad){
+        otroPcts=otroFlujo.pcts[form.calidad]||[];
+      }
+    }
+    var otroTams=[];
+    if(otroFlujo&&otroFlujo.tams&&form&&form.presentacion){
+      otroTams=otroFlujo.tams[form.presentacion]||[];
+    }
+
+    // Avance pedidos
+    var avancesPedidos=pedidosActivos.map(function(ped){
+      var cajasPed=registros.filter(function(r){return r.cliente===ped.cliente&&(!ped.calidad||r.calidad===ped.calidad)&&(!ped.presentacion||r.presentacion===ped.presentacion||r.subcalidad===ped.presentacion);}).reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+      var total=parseInt(ped.cajas)||1;
+      var pct=Math.min(100,Math.round(cajasPed/total*100));
+      return {ped:ped,cajasPed:cajasPed,pct:pct,falta:Math.max(0,total-cajasPed)};
+    });
+
+    // Filtros
+    var regFiltrados=registros.filter(function(r){
+      return !r.bajado&&(!filtroCliente||r.cliente===filtroCliente)&&(!filtroRancho||r.rancho===filtroRancho)&&(!filtroMalla||r.malla===filtroMalla);
+    });
+    var regsActivos=registros.filter(function(r){return !r.bajado;});
+    var regsBajados=registros.filter(function(r){return r.bajado;});
+    var clientesReg=regFiltrados.reduce(function(arr,r){
+      if(arr.indexOf(r.cliente)===-1) arr.push(r.cliente);
+      return arr;
+    },[]);
+
+    return (
+      <React.Fragment>
+      <div style={{background:"#0d1a12",minHeight:"100vh",color:"#f0ede8",fontFamily:"system-ui"}}>
+        <div style={{maxWidth:600,margin:"0 auto",padding:"10px 12px 60px"}}>
+
+          {/* Header */}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,borderBottom:"1px solid rgba(255,255,255,0.07)",paddingBottom:10}}>
+            <button onClick={function(){setProd(null);}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,padding:"5px 10px",color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Volver</button>
+            <div style={{fontSize:26,fontWeight:900,color:col}}>{prod}</div>
+            <div style={{marginLeft:"auto",display:"flex",gap:5}}>
+              <button onClick={function(){requerirPin(function(){setFormPedido({producto:prod,cliente:"",calidad:"",subcalidad:"",presentacion:"",cajas:""});setModalPedido(true);});}} style={{background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"5px 8px",color:"#b0bec5",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Pedido</button>
+              <button onClick={function(){requerirPin(function(){setConfirmCerrar(true);});}} style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:6,padding:"5px 8px",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Cerrar dia</button>
+            </div>
+          </div>
+
+          {/* Total y resumen por presentacion */}
+          <div style={{background:"rgba(0,0,0,0.3)",border:"1px solid "+col+"33",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:totalHoy>0?8:0}}>
+              <div style={{fontSize:12,color:"#b0bec5",textTransform:"uppercase",letterSpacing:1}}>Total empacado hoy</div>
+              <div style={{fontSize:42,fontWeight:900,color:col,fontFamily:"Georgia,serif"}}>{totalHoy} cajas</div>
+            </div>
+            {totalHoy>0&&<ResumenPct registros={registros} col={col}/>}
+          </div>
+
+          {/* Pedidos activos */}
+          {avancesPedidos.map(function(ap){
+            var ped=ap.ped;
+            var pedEditando=editPed&&editPed.id===ped.id;
+            return (
+              <div key={ped.id||ped.cliente} style={{marginBottom:8}}>
+                <div style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:pedEditando?"8px 8px 0 0":"8px",padding:"10px 12px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                    <div>
+                      <div style={{fontSize:12,color:"#8899aa",textTransform:"uppercase",letterSpacing:1}}>Pedido activo</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#ffffff"}}>{ped.cliente}{ped.calidad?" . "+ped.calidad:""}{ped.presentacion?" . "+ped.presentacion:""}</div>
+                    </div>
+                    <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
+                      <div style={{fontSize:11,color:"#8899aa"}}>{ped.cajas} cajas</div>
+                      <button onClick={function(e){e.stopPropagation();var snap=Object.assign({},ped,{_prod:prod,_borrar:false});setEditPed(pedEditando&&!editPed._borrar?null:snap);setEditPin("");setEditPinErr(false);setEditAuth(false);}}
+                        style={{background:pedEditando&&!editPed._borrar?"rgba(96,165,250,0.3)":"rgba(96,165,250,0.1)",border:"1px solid rgba(96,165,250,0.4)",borderRadius:5,padding:"3px 8px",color:"#60a5fa",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>{pedEditando&&!editPed._borrar?"Cerrar":"Editar"}</button>
+                      <button onClick={function(e){e.stopPropagation();var snap=Object.assign({},ped,{_prod:prod,_borrar:true});setEditPed(pedEditando&&editPed._borrar?null:snap);setEditPin("");setEditPinErr(false);setEditAuth(false);}}
+                        style={{background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:5,padding:"3px 8px",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar</button>
+                      <button onClick={function(){setConfirmCerrarPed(ped);}}
+                        style={{background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:5,padding:"3px 8px",color:"#fbbf24",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Cerrar pedido</button>
+                      {(function(){
+                        var pedSnap=ped;
+                        return(
+                          <button onClick={function(e){e.stopPropagation();setJalarPed(pedSnap);}}
+                            style={{background:"rgba(74,222,128,0.1)",border:"1px solid rgba(74,222,128,0.3)",borderRadius:5,padding:"3px 8px",color:"#4ade80",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Jalar inv.</button>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  <div style={{height:28,background:"rgba(239,68,68,0.15)",borderRadius:8,overflow:"hidden",display:"flex",border:"1px solid rgba(255,255,255,0.07)"}}>
+                    <div style={{height:"100%",width:ap.pct+"%",background:ap.pct>=100?"#22c55e":col,borderRadius:"8px 0 0 8px",transition:"width 0.4s",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {ap.pct>8&&<span style={{fontSize:13,fontWeight:700,color:"#000",whiteSpace:"nowrap",padding:"0 6px"}}>{ap.cajasPed} cjs ({ap.pct}%)</span>}
+                    </div>
+                    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      {ap.falta>0&&<span style={{fontSize:13,fontWeight:700,color:"rgba(239,68,68,0.7)",whiteSpace:"nowrap",padding:"0 6px"}}>Faltan {ap.falta} ({100-ap.pct}%)</span>}
+                    </div>
+                  </div>
+                </div>
+                {/* EDITAR PEDIDO INLINE */}
+                {pedEditando&&!editPed._borrar&&(
+                  <div style={{background:"rgba(10,22,40,0.98)",border:"2px solid #60a5fa",borderTop:"none",borderRadius:"0 0 8px 8px",padding:"12px"}}>
+                    {!editAuth?(
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                        <input type="password" placeholder="PIN" value={editPin}
+                          onChange={function(e){setEditPin(e.target.value);setEditPinErr(false);}}
+                          onKeyDown={function(e){if(e.key==="Enter"){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}}
+                          style={{flex:1,background:"rgba(0,0,0,0.5)",border:"2px solid "+(editPinErr?"#ef4444":"rgba(96,165,250,0.4)"),borderRadius:8,padding:"9px",color:"#fff",fontFamily:"system-ui",fontSize:16,fontWeight:800,textAlign:"center",outline:"none"}}/>
+                        <button onClick={function(){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}
+                          style={{padding:"9px 14px",background:"rgba(96,165,250,0.2)",border:"2px solid rgba(96,165,250,0.5)",borderRadius:8,color:"#60a5fa",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>OK</button>
+                      </div>
+                    ):(
+                      <div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                          {[["cliente","Cliente"],["calidad","Calidad"],["presentacion","Presentacion"],["cajas","Cajas"]].map(function(f){
+                            return(
+                              <div key={f[0]}>
+                                <div style={{fontSize:8,fontWeight:900,color:"#4a6a7a",letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>{f[1]}</div>
+                                <input type={f[0]==="cajas"?"number":"text"} value={editPed[f[0]]||""}
+                                  onChange={function(e){var upd=Object.assign({},editPed);upd[f[0]]=e.target.value;setEditPed(upd);}}
+                                  style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(96,165,250,0.3)",borderRadius:6,padding:"7px 8px",color:"#e8eaf0",fontFamily:"system-ui",fontSize:13,fontWeight:700,outline:"none"}}/>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={{display:"flex",gap:8}}>
+                          <button onClick={function(){setEditPed(null);setEditAuth(false);}}
+                            style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"#6b7280",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                          <button onClick={function(){
+                            var pN=editPed._prod;var updPed=editPed;
+                            var nuevos=pedidosActivos.map(function(p){return p.id===updPed.id?Object.assign({},p,{cliente:updPed.cliente,calidad:updPed.calidad,presentacion:updPed.presentacion,cajas:updPed.cajas}):p;});
+                            var np=Object.assign({},pedidos);np[pN]=nuevos;
+                            setPedidos(np);fbSet(PED_KEY,np);setEditPed(null);setEditAuth(false);
+                          }} style={{flex:2,padding:"8px",background:"rgba(96,165,250,0.2)",border:"2px solid rgba(96,165,250,0.5)",borderRadius:7,color:"#60a5fa",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>Guardar</button>
+                        </div>
+                      </div>
+                    )}
+                    {editPinErr&&<div style={{fontSize:11,color:"#ef4444",marginTop:6}}>PIN incorrecto</div>}
+                  </div>
+                )}
+                {/* BORRAR PEDIDO INLINE */}
+                {pedEditando&&editPed._borrar&&(
+                  <div style={{background:"rgba(20,5,5,0.98)",border:"2px solid #ef4444",borderTop:"none",borderRadius:"0 0 8px 8px",padding:"12px"}}>
+                    {!editAuth?(
+                      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                        <input type="password" placeholder="PIN" value={editPin}
+                          onChange={function(e){setEditPin(e.target.value);setEditPinErr(false);}}
+                          onKeyDown={function(e){if(e.key==="Enter"){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}}
+                          style={{flex:1,background:"rgba(0,0,0,0.5)",border:"2px solid "+(editPinErr?"#ef4444":"rgba(239,68,68,0.4)"),borderRadius:8,padding:"9px",color:"#fff",fontFamily:"system-ui",fontSize:16,fontWeight:800,textAlign:"center",outline:"none"}}/>
+                        <button onClick={function(){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}
+                          style={{padding:"9px 14px",background:"rgba(239,68,68,0.2)",border:"2px solid rgba(239,68,68,0.5)",borderRadius:8,color:"#ef4444",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>OK</button>
+                      </div>
+                    ):(
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={function(){setEditPed(null);setEditAuth(false);}}
+                          style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"#6b7280",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                        <button onClick={function(){
+                          var pN=editPed._prod;var pedId=editPed.id;
+                          var nuevos=pedidosActivos.filter(function(p){return p.id!==pedId;});
+                          var np=Object.assign({},pedidos);np[pN]=nuevos;
+                          setPedidos(np);fbSet(PED_KEY,np);setEditPed(null);setEditAuth(false);
+                        }} style={{flex:2,padding:"9px",background:"rgba(239,68,68,0.2)",border:"2px solid rgba(239,68,68,0.5)",borderRadius:7,color:"#ef4444",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>Confirmar borrar pedido</button>
+                      </div>
+                    )}
+                    {editPinErr&&<div style={{fontSize:11,color:"#ef4444",marginTop:6}}>PIN incorrecto</div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Tabs */}
+          <div style={{display:"flex",borderBottom:"1px solid rgba(255,255,255,0.07)",marginBottom:12}}>
+            {["registro","bajas","inventario","cerrados"].map(function(id){
+              var pedsCerr=Array.isArray(pedidosCerrados[prod])?pedidosCerrados[prod]:[];
+              var regsActivos=registros.filter(function(r){return !r.bajado;});
+              var regsBajados=registros.filter(function(r){return r.bajado;});
+              var lb=id==="registro"?"Registro"+(regsActivos.length>0?" ("+regsActivos.length+")":""):
+                id==="bajas"?"Bajas"+(regsBajados.length>0?" ("+regsBajados.length+")":""):
+                id==="inventario"?"Inv."+(inventario.length>0?" ("+inventario.length+")":""):
+                "Pedidos"+(pedsCerr.length>0?" ("+pedsCerr.length+")":"");
+              return (
+                <button key={id} onClick={function(){setTab(id);}} style={{flex:1,padding:"7px",border:"none",background:"transparent",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer",color:tab===id?col:"#8899aa",textTransform:"uppercase",borderBottom:tab===id?"2px solid "+col:"2px solid transparent"}}>{lb}</button>
+              );
+            })}
+          </div>
+
+          {/* Registro */}
+          {tab==="registro"&&(
+            <div>
+              {/* Botones de accion */}
+              <div style={{display:"flex",gap:6,marginBottom:10}}>
+                {!modoSeleccion
+                  ? <button onClick={function(){requerirPin(function(){setForm(initForm(prod));});}} style={{flex:2,padding:"10px",background:col+"22",border:"1px solid "+col+"55",borderRadius:8,color:col,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>+ Registrar cajas</button>
+                  : <button onClick={function(){setModalBajaMulti(true);}} disabled={seleccionados.length===0} style={{flex:2,padding:"10px",background:seleccionados.length>0?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.04)",border:"1px solid "+(seleccionados.length>0?"rgba(239,68,68,0.5)":"rgba(255,255,255,0.1)"),borderRadius:8,color:seleccionados.length>0?"#ef4444":"#8899aa",fontSize:12,fontWeight:700,cursor:seleccionados.length>0?"pointer":"default",fontFamily:"system-ui"}}>Dar de baja ({seleccionados.length})</button>
+                }
+                <button onClick={function(){requerirPin(function(){setModoSeleccion(!modoSeleccion); setSeleccionados([]);});}} style={{flex:1,padding:"10px",background:modoSeleccion?"rgba(245,158,11,0.15)":"rgba(255,255,255,0.05)",border:"1px solid "+(modoSeleccion?"rgba(245,158,11,0.4)":"rgba(255,255,255,0.1)"),borderRadius:8,color:modoSeleccion?"#f59e0b":"#b0bec5",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>{modoSeleccion?"Cancelar":"Seleccionar"}</button>
+              </div>
+              {!form
+                ? null
+                : (
+                  <div style={{background:"rgba(0,0,0,0.3)",border:"1px solid "+col+"44",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+                    {/* Persa: Presentacion primero */}
+                    {esPersa&&(
+                      <div style={{marginBottom:6}}>
+                        <div style={lbl}>Presentacion</div>
+                        <select style={inp} value={form.presentacion} onChange={function(e){setForm(function(f){return {producto:f.producto,presentacion:e.target.value,calidad:"",subcalidad:"",tamano:"",cliente:f.cliente,rancho:f.rancho,malla:f.malla,linea:f.linea,cajas:f.cajas,hora:f.hora};});}}>
+                          <option value="">-- Seleccionar --</option>
+                          {persaPcts.map(function(p){return <option key={p}>{p}</option>;})}
+                        </select>
+                      </div>
+                    )}
+                    {/* Calidad */}
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                      <div><div style={lbl}>Calidad</div>
+                        <select style={inp} value={form.calidad} onChange={function(e){setF("calidad",e.target.value); setF("subcalidad","");}}>
+                          <option value="">-- Seleccionar --</option>
+                          {(esPersa?persaCalOpts:otroCalOpts).map(function(c){return <option key={c.cal}>{c.cal}</option>;})}
+                        </select>
+                      </div>
+                      {/* Sub-calidad (solo Persa 20lb) */}
+                      {esPersa&&persaSubOpts.length>0&&(
+                        <div><div style={lbl}>Sub-calidad</div>
+                          <select style={inp} value={form.subcalidad} onChange={function(e){setF("subcalidad",e.target.value);}}>
+                            <option value="">-- Seleccionar --</option>
+                            {persaSubOpts.map(function(s){return <option key={s}>{s}</option>;})}
+                          </select>
+                        </div>
+                      )}
+                      {/* Presentacion para no-Persa */}
+                      {!esPersa&&otroPcts.length>0&&(
+                        <div><div style={lbl}>Presentacion</div>
+                          <select style={inp} value={form.presentacion} onChange={function(e){setF("presentacion",e.target.value); setF("tamano","");}}>
+                            <option value="">-- Seleccionar --</option>
+                            {otroPcts.map(function(p){return <option key={p}>{p}</option>;})}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                    {/* Tamano (solo Europeo) */}
+                    {!esPersa&&otroTams.length>0&&(
+                      <div style={{marginBottom:6}}>
+                        <div style={lbl}>Tamano</div>
+                        <select style={inp} value={form.tamano} onChange={function(e){setF("tamano",e.target.value);}}>
+                          <option value="">-- Seleccionar --</option>
+                          {otroTams.map(function(t){return <option key={t}>{t}</option>;})}
+                        </select>
+                      </div>
+                    )}
+                    {/* Cliente */}
+                    <div style={{marginBottom:6}}>
+                      <div style={lbl}>Cliente</div>
+                      <select style={inp} value={form.cliente} onChange={function(e){setF("cliente",e.target.value);}}>
+                        <option value="">-- Seleccionar --</option>
+                        {clts.map(function(c){return <option key={c}>{c}</option>;})}
+                      </select>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginBottom:6}}>
+                      <div><div style={lbl}>Rancho</div>
+                        <select style={inp} value={form.rancho} onChange={function(e){setF("rancho",e.target.value);}}>
+                          {ranchosDeProducto(prod).map(function(r){return <option key={r}>{r}</option>;})}
+                        </select>
+                      </div>
+                      <div><div style={lbl}>Malla</div>
+                        <input style={inp} placeholder="Ej: 5" value={form.malla} onChange={function(e){setF("malla",e.target.value);}}/>
+                      </div>
+                      <div><div style={lbl}>Cajas</div>
+                        <input style={inp} type="number" placeholder="0" value={form.cajas} onChange={function(e){setF("cajas",e.target.value);}}/>
+                      </div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                      <div><div style={lbl}>Linea</div>
+                        <select style={inp} value={form.linea} onChange={function(e){setF("linea",e.target.value);}}>
+                          {LINEAS_PROC.map(function(l){return <option key={l}>{l}</option>;})}
+                        </select>
+                      </div>
+                      <div><div style={lbl}>Fecha</div>
+                        <input style={inp} type="date" value={form.fecha||fechaLocalISO()} onChange={function(e){setF("fecha",e.target.value);}}/>
+                      </div>
+                      <div><div style={lbl}>Hora</div>
+                        <input style={inp} type="time" value={form.hora} onChange={function(e){setF("hora",e.target.value);}}/>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:6}}>
+                      <button onClick={function(){setForm(null); setErroresForm([]);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#8899aa",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                      <button onClick={function(){requerirPin(registrar);}} style={{flex:2,padding:"8px",background:col,border:"none",borderRadius:6,color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Guardar</button>
+                    </div>
+                    {erroresForm.length>0&&(
+                      <div style={{marginTop:8,background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,padding:"8px 10px"}}>
+                        <div style={{fontSize:13,fontWeight:700,color:"#ef4444",marginBottom:4}}>Faltan datos:</div>
+                        {erroresForm.map(function(e){return <div key={e} style={{fontSize:13,color:"#ef4444"}}>- {e}</div>;})}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
+              {/* Filtros */}
+              {registros.length>0&&(
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:10}}>
+                  <select style={{...inp,fontSize:13,padding:"5px 8px"}} value={filtroCliente} onChange={function(e){setFiltroCliente(e.target.value);}}>
+                    <option value="">Todos clientes</option>
+                    {clts.map(function(c){return <option key={c}>{c}</option>;})}
+                  </select>
+                  <select style={{...inp,fontSize:13,padding:"5px 8px"}} value={filtroRancho} onChange={function(e){setFiltroRancho(e.target.value);}}>
+                    <option value="">Todos ranchos</option>
+                    {RANCHOS.map(function(r){return <option key={r}>{r}</option>;})}
+                  </select>
+                  <input style={{...inp,fontSize:13,padding:"5px 8px"}} placeholder="Malla..." value={filtroMalla} onChange={function(e){setFiltroMalla(e.target.value);}}/>
+                </div>
+              )}
+
+              {registros.length===0
+                ? <div style={{textAlign:"center",padding:30,color:"#8899aa",fontSize:12}}>Sin registros hoy</div>
+                : regFiltrados.length===0
+                ? <div style={{textAlign:"center",padding:20,color:"#8899aa",fontSize:11}}>Sin resultados</div>
+                : clientesReg.map(function(cliente){
+                  var regsCliente=regFiltrados.filter(function(r){return r.cliente===cliente;});
+                  var totalCliente=regsCliente.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+                  return (
+                    <div key={cliente} style={{marginBottom:12}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5,padding:"4px 0",borderBottom:"1px solid "+col+"33"}}>
+                        <span style={{fontSize:15,fontWeight:700,color:col}}>{cliente}</span>
+                        <span style={{fontSize:16,fontWeight:700,color:"#ffffff",fontFamily:"Georgia,serif"}}>{totalCliente} cajas</span>
+                      </div>
+                      {regsCliente.map(function(r){
+                        return (
+                          <div key={r.id} style={{marginBottom:4}}>
+                            <div onClick={function(){if(!modoSeleccion)return; var idx=seleccionados.indexOf(r.id); if(idx>=0){var ns=seleccionados.filter(function(x){return x!==r.id;}); setSeleccionados(ns);}else{setSeleccionados(seleccionados.concat([r.id]));};}} style={{background:r.bajado?"rgba(0,0,0,0.1)":seleccionados.indexOf(r.id)>=0?"rgba(245,158,11,0.1)":"rgba(0,0,0,0.2)",border:"1px solid "+(r.bajado?"rgba(255,255,255,0.03)":seleccionados.indexOf(r.id)>=0?"rgba(245,158,11,0.4)":"rgba(255,255,255,0.06)"),borderRadius:editReg&&editReg.id===r.id?"7px 7px 0 0":"7px",padding:"7px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:modoSeleccion?"pointer":"default"}}>
+                              {modoSeleccion&&(
+                                <div style={{width:18,height:18,borderRadius:4,border:"2px solid "+(seleccionados.indexOf(r.id)>=0?"#f59e0b":"rgba(255,255,255,0.2)"),background:seleccionados.indexOf(r.id)>=0?"#f59e0b":"transparent",marginRight:8,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                  {seleccionados.indexOf(r.id)>=0&&<span style={{color:"#000",fontSize:11,fontWeight:900}}>v</span>}
+                                </div>
+                              )}
+                              <div style={{flex:1}}>
+                                <div style={{fontSize:14,fontWeight:700,color:r.bajado?"#8899aa":"#ffffff"}}>{r.calidad}{r.subcalidad?" / "+r.subcalidad:""}{r.presentacion?" - "+r.presentacion:""}{r.tamano?" ("+r.tamano+")":""}{r.bajado?" ["+r.motivoBaja+"]":""}</div>
+                                <div style={{fontSize:11,color:"#b0bec5"}}>{r.folio&&<span style={{color:"#7eb3ff",fontWeight:700,marginRight:6}}>{r.folio}</span>}{r.rancho} . M{r.malla} . L.{r.linea} . {r.hora}{r.fecha?" . "+r.fecha:""}</div>
+                              </div>
+                              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                <div style={{fontSize:24,fontWeight:900,color:r.bajado?"#8899aa":col,fontFamily:"Georgia,serif"}}>{r.cajas}</div>
+                                {!modoSeleccion&&<button
+                                  onClick={function(e){e.stopPropagation();var snap={id:r.id,_prod:prod,_borrar:false,fecha:r.fecha||"",cliente:r.cliente||"",calidad:r.calidad||"",subcalidad:r.subcalidad||"",presentacion:r.presentacion||"",tamano:r.tamano||"",rancho:r.rancho||"",malla:r.malla||"",linea:r.linea||"",cajas:r.cajas||"",hora:r.hora||""};setEditReg(editReg&&editReg.id===r.id?null:snap);setEditPin("");setEditPinErr(false);}}
+                                  style={{background:editReg&&editReg.id===r.id?"rgba(96,165,250,0.35)":"rgba(96,165,250,0.15)",border:"2px solid rgba(96,165,250,0.5)",borderRadius:6,padding:"6px 10px",color:"#60a5fa",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>{editReg&&editReg.id===r.id?"Cerrar":"Editar"}</button>}
+                                {!modoSeleccion&&<button
+                                  onClick={function(e){e.stopPropagation();var snap={id:r.id,_prod:prod,_borrar:true,cajas:r.cajas,cliente:r.cliente||"",presentacion:r.presentacion||"",calidad:r.calidad||""};setEditReg(editReg&&editReg.id===r.id&&editReg._borrar?null:snap);setEditPin("");setEditPinErr(false);}}
+                                  style={{background:"rgba(239,68,68,0.15)",border:"2px solid rgba(239,68,68,0.5)",borderRadius:6,padding:"6px 10px",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar</button>}
+                                {!modoSeleccion&&!r.bajado&&<button
+                                  onClick={function(e){e.stopPropagation();requerirPin(function(){setModalBaja({itemId:r.id,tipo:"reg",producto:prod});});}}
+                                  style={{background:"rgba(251,191,36,0.1)",border:"1px solid rgba(251,191,36,0.3)",borderRadius:6,padding:"6px 10px",color:"#fbbf24",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Baja</button>}
+                              </div>
+                            </div>
+                            {/* PANEL INLINE DE EDICION */}
+                            {editReg&&editReg.id===r.id&&!editReg._borrar&&(
+                              <div style={{background:"rgba(10,22,40,0.98)",border:"2px solid #60a5fa",borderTop:"none",borderRadius:"0 0 10px 10px",padding:"14px"}}>
+                                {!editAuth?(
+                                  <div>
+                                    <div style={{fontSize:12,color:"#60a5fa",fontWeight:700,marginBottom:8}}>PIN maestro para editar</div>
+                                    <div style={{display:"flex",gap:8}}>
+                                      <input type="password" placeholder="PIN" value={editPin}
+                                        onChange={function(e){setEditPin(e.target.value);setEditPinErr(false);}}
+                                        onKeyDown={function(e){if(e.key==="Enter"){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}}
+                                        style={{flex:1,background:"rgba(0,0,0,0.5)",border:"2px solid "+(editPinErr?"#ef4444":"rgba(96,165,250,0.4)"),borderRadius:8,padding:"10px",color:"#fff",fontFamily:"system-ui",fontSize:18,fontWeight:800,textAlign:"center",outline:"none"}}/>
+                                      <button onClick={function(){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}
+                                        style={{padding:"10px 16px",background:"rgba(96,165,250,0.2)",border:"2px solid rgba(96,165,250,0.5)",borderRadius:8,color:"#60a5fa",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>OK</button>
+                                    </div>
+                                    {editPinErr&&<div style={{fontSize:11,color:"#ef4444",marginTop:6}}>PIN incorrecto</div>}
+                                  </div>
+                                ):(
+                                  <div>
+                                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                                      {[["fecha","Fecha","date"],["hora","Hora","time"],["cliente","Cliente","text"],["calidad","Calidad","text"],["presentacion","Presentacion","text"],["cajas","Cajas","number"],["rancho","Rancho","text"],["malla","Malla","text"]].map(function(f){
+                                        return(
+                                          <div key={f[0]}>
+                                            <div style={{fontSize:8,fontWeight:900,color:"#4a6a7a",letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>{f[1]}</div>
+                                            <input type={f[2]} value={editReg[f[0]]||""} onChange={function(e){var upd=Object.assign({},editReg);upd[f[0]]=e.target.value;setEditReg(upd);}}
+                                              style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(96,165,250,0.3)",borderRadius:6,padding:"7px 8px",color:"#e8eaf0",fontFamily:"system-ui",fontSize:13,fontWeight:700,outline:"none"}}/>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                    <div style={{display:"flex",gap:8}}>
+                                      <button onClick={function(){setEditReg(null);setEditAuth(false);}}
+                                        style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#6b7280",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                                      <button onClick={function(){
+                                        var pN=editReg._prod;var uR=editReg;
+                                        var nd=Object.assign({},datos);
+                                        nd[pN]=Object.assign({},datos[pN],{registros:datos[pN].registros.map(function(rx){return rx.id===uR.id?Object.assign({},rx,uR):rx;})});
+                                        guardar(nd);setEditReg(null);setEditAuth(false);
+                                      }}
+                                        style={{flex:2,padding:"9px",background:"rgba(96,165,250,0.2)",border:"2px solid rgba(96,165,250,0.5)",borderRadius:8,color:"#60a5fa",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>Guardar</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {/* PANEL INLINE DE BORRAR */}
+                            {editReg&&editReg.id===r.id&&editReg._borrar&&(
+                              <div style={{background:"rgba(20,5,5,0.98)",border:"2px solid #ef4444",borderTop:"none",borderRadius:"0 0 10px 10px",padding:"14px"}}>
+                                {!editAuth?(
+                                  <div>
+                                    <div style={{fontSize:12,color:"#ef4444",fontWeight:700,marginBottom:8}}>PIN para borrar este registro</div>
+                                    <div style={{display:"flex",gap:8}}>
+                                      <input type="password" placeholder="PIN" value={editPin}
+                                        onChange={function(e){setEditPin(e.target.value);setEditPinErr(false);}}
+                                        onKeyDown={function(e){if(e.key==="Enter"){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}}
+                                        style={{flex:1,background:"rgba(0,0,0,0.5)",border:"2px solid "+(editPinErr?"#ef4444":"rgba(239,68,68,0.4)"),borderRadius:8,padding:"10px",color:"#fff",fontFamily:"system-ui",fontSize:18,fontWeight:800,textAlign:"center",outline:"none"}}/>
+                                      <button onClick={function(){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}
+                                        style={{padding:"10px 16px",background:"rgba(239,68,68,0.2)",border:"2px solid rgba(239,68,68,0.5)",borderRadius:8,color:"#ef4444",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>OK</button>
+                                    </div>
+                                    {editPinErr&&<div style={{fontSize:11,color:"#ef4444",marginTop:6}}>PIN incorrecto</div>}
+                                  </div>
+                                ):(
+                                  <div style={{textAlign:"center"}}>
+                                    <div style={{fontSize:13,color:"#ef4444",fontWeight:700,marginBottom:12}}>{r.cajas} cajas . {r.cliente} . {r.presentacion}</div>
+                                    <div style={{display:"flex",gap:8}}>
+                                      <button onClick={function(){setEditReg(null);setEditAuth(false);}}
+                                        style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#6b7280",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                                      <button onClick={function(){
+                                        var pN=editReg._prod;var rId=editReg.id;
+                                        var nd=Object.assign({},datos);
+                                        nd[pN]=Object.assign({},datos[pN],{registros:datos[pN].registros.filter(function(rx){return rx.id!==rId;})});
+                                        guardar(nd);setEditReg(null);setEditAuth(false);
+                                      }}
+                                        style={{flex:2,padding:"9px",background:"rgba(239,68,68,0.2)",border:"2px solid rgba(239,68,68,0.5)",borderRadius:8,color:"#ef4444",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>Confirmar borrar</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+              }
+            </div>
+          )}
+
+          {/* Dados de baja */}
+          {tab==="bajas"&&(
+            <div>
+              {/* Filtros */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:10}}>
+                {[["Fecha",filtroBajaFecha,setFiltroBajaFecha,"Ej: 04/07"],["Cliente",filtroBajaCli,setFiltroBajaCli,"Nombre"],["Calidad",filtroBajaCal,setFiltroBajaCal,"Primera..."],["Presentacion",filtroBajaPct,setFiltroBajaPct,"18ct..."]].map(function(f){return(
+                  <div key={f[0]}>
+                    <div style={{fontSize:9,color:"#8899aa",marginBottom:3,textTransform:"uppercase",letterSpacing:1}}>{f[0]}</div>
+                    <input type="text" placeholder={f[3]} value={f[1]} onChange={function(e){f[2](e.target.value);}}
+                      style={{width:"100%",background:"rgba(0,0,0,0.3)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,padding:"6px 8px",color:"#fff",fontFamily:"system-ui",fontSize:12,outline:"none"}}/>
+                  </div>
+                );})}
+              </div>
+              {regsBajados.length===0
+                ? <div style={{textAlign:"center",padding:30,color:"#8899aa",fontSize:12}}>Sin bajas hoy</div>
+                : regsBajados.filter(function(r){
+                    if(filtroBajaFecha&&(r.fecha||r.hora||"").indexOf(filtroBajaFecha)<0)return false;
+                    if(filtroBajaCli&&(r.cliente||"").toLowerCase().indexOf(filtroBajaCli.toLowerCase())<0)return false;
+                    if(filtroBajaCal&&(r.calidad||"").toLowerCase().indexOf(filtroBajaCal.toLowerCase())<0)return false;
+                    if(filtroBajaPct&&(r.presentacion||"").toLowerCase().indexOf(filtroBajaPct.toLowerCase())<0)return false;
+                    return true;
+                  }).map(function(r){
+                    var abriendo=editBaja&&editBaja.id===r.id;
+                    return (
+                      <div key={r.id} style={{marginBottom:6}}>
+                        <div style={{background:"rgba(0,0,0,0.2)",border:"1px solid "+(abriendo?"rgba(96,165,250,0.4)":"rgba(255,255,255,0.06)"),borderRadius:abriendo?"7px 7px 0 0":"7px",padding:"8px 10px"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:11,fontWeight:700,color:"#b0bec5"}}>{r.calidad}{r.subcalidad?" / "+r.subcalidad:""}{r.presentacion?" - "+r.presentacion:""}</div>
+                              <div style={{fontSize:12,color:"#8899aa"}}>{r.cliente||"Sin cliente"} . {r.rancho} . M{r.malla} . {r.fecha||r.hora}</div>
+                              <div style={{fontSize:11,marginTop:2}}>
+                                <span style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:4,padding:"1px 6px",color:"#ef4444",fontWeight:700}}>{r.motivoBaja}</span>
+                              </div>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:5}}>
+                              <div style={{fontSize:18,fontWeight:900,color:"#8899aa",fontFamily:"Georgia,serif"}}>{r.cajas}</div>
+                              <button onClick={function(e){e.stopPropagation();var snap=Object.assign({},r,{_prod:prod,_borrar:false});setEditBaja(abriendo&&!editBaja._borrar?null:snap);setEditPin("");setEditPinErr(false);setEditAuth(false);}}
+                                style={{padding:"4px 8px",background:"rgba(96,165,250,0.12)",border:"1px solid rgba(96,165,250,0.35)",borderRadius:5,color:"#60a5fa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>{abriendo&&!editBaja._borrar?"Cerrar":"Editar"}</button>
+                              <button onClick={function(e){e.stopPropagation();var snap=Object.assign({},r,{_prod:prod,_borrar:true});setEditBaja(abriendo&&editBaja._borrar?null:snap);setEditPin("");setEditPinErr(false);setEditAuth(false);}}
+                                style={{padding:"4px 8px",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.3)",borderRadius:5,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar</button>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Panel inline editar baja */}
+                        {abriendo&&!editBaja._borrar&&(
+                          <div style={{background:"rgba(10,22,40,0.98)",border:"2px solid #60a5fa",borderTop:"none",borderRadius:"0 0 8px 8px",padding:"12px"}}>
+                            {!editAuth?(
+                              <div style={{display:"flex",gap:8}}>
+                                <input type="password" placeholder="PIN" value={editPin} onChange={function(e){setEditPin(e.target.value);setEditPinErr(false);}} onKeyDown={function(e){if(e.key==="Enter"){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}}
+                                  style={{flex:1,background:"rgba(0,0,0,0.5)",border:"2px solid "+(editPinErr?"#ef4444":"rgba(96,165,250,0.4)"),borderRadius:7,padding:"9px",color:"#fff",fontFamily:"system-ui",fontSize:16,fontWeight:800,textAlign:"center",outline:"none"}}/>
+                                <button onClick={function(){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}} style={{padding:"9px 14px",background:"rgba(96,165,250,0.2)",border:"2px solid rgba(96,165,250,0.5)",borderRadius:7,color:"#60a5fa",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>OK</button>
+                              </div>
+                            ):(
+                              <div>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                                  {[["cliente","Cliente","text"],["calidad","Calidad","text"],["presentacion","Presentacion","text"],["cajas","Cajas","number"],["motivoBaja","Motivo baja","text"],["fecha","Fecha","text"]].map(function(f){return(
+                                    <div key={f[0]}>
+                                      <div style={{fontSize:8,color:"#4a6a7a",fontWeight:900,letterSpacing:1.5,textTransform:"uppercase",marginBottom:3}}>{f[1]}</div>
+                                      <input type={f[2]} value={editBaja[f[0]]||""} onChange={function(e){var upd=Object.assign({},editBaja);upd[f[0]]=e.target.value;setEditBaja(upd);}}
+                                        style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"1px solid rgba(96,165,250,0.3)",borderRadius:6,padding:"7px 8px",color:"#e8eaf0",fontFamily:"system-ui",fontSize:13,fontWeight:700,outline:"none"}}/>
+                                    </div>
+                                  );})}
+                                </div>
+                                <div style={{display:"flex",gap:8}}>
+                                  <button onClick={function(){setEditBaja(null);setEditAuth(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"#6b7280",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                                  <button onClick={function(){
+                                    var pN=editBaja._prod;var uB=editBaja;
+                                    var nd=Object.assign({},datos);
+                                    nd[pN]=Object.assign({},datos[pN],{registros:datos[pN].registros.map(function(rx){return rx.id===uB.id?Object.assign({},rx,uB):rx;})});
+                                    guardar(nd);setEditBaja(null);setEditAuth(false);
+                                  }} style={{flex:2,padding:"8px",background:"rgba(96,165,250,0.18)",border:"2px solid rgba(96,165,250,0.5)",borderRadius:7,color:"#60a5fa",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>Guardar</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {/* Panel inline borrar baja */}
+                        {abriendo&&editBaja._borrar&&(
+                          <div style={{background:"rgba(20,5,5,0.98)",border:"2px solid #ef4444",borderTop:"none",borderRadius:"0 0 8px 8px",padding:"12px"}}>
+                            {!editAuth?(
+                              <div style={{display:"flex",gap:8}}>
+                                <input type="password" placeholder="PIN" value={editPin} onChange={function(e){setEditPin(e.target.value);setEditPinErr(false);}} onKeyDown={function(e){if(e.key==="Enter"){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}}
+                                  style={{flex:1,background:"rgba(0,0,0,0.5)",border:"2px solid rgba(239,68,68,0.4)",borderRadius:7,padding:"9px",color:"#fff",fontFamily:"system-ui",fontSize:16,fontWeight:800,textAlign:"center",outline:"none"}}/>
+                                <button onClick={function(){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}} style={{padding:"9px 14px",background:"rgba(239,68,68,0.2)",border:"2px solid rgba(239,68,68,0.5)",borderRadius:7,color:"#ef4444",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>OK</button>
+                              </div>
+                            ):(
+                              <div style={{display:"flex",gap:8}}>
+                                <button onClick={function(){setEditBaja(null);setEditAuth(false);}} style={{flex:1,padding:"9px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:7,color:"#6b7280",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                                <button onClick={function(){
+                                  var pN=editBaja._prod;var rId=editBaja.id;
+                                  var nd=Object.assign({},datos);
+                                  nd[pN]=Object.assign({},datos[pN],{registros:datos[pN].registros.filter(function(rx){return rx.id!==rId;})});
+                                  guardar(nd);setEditBaja(null);setEditAuth(false);
+                                }} style={{flex:2,padding:"9px",background:"rgba(239,68,68,0.18)",border:"2px solid rgba(239,68,68,0.5)",borderRadius:7,color:"#ef4444",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:"pointer"}}>Confirmar borrar</button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+              }
+              {regsBajados.length>0&&(
+                <div style={{marginTop:8,padding:"8px 10px",background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:7,display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:11,color:"#8899aa"}}>Total dado de baja hoy</span>
+                  <span style={{fontSize:14,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif"}}>{regsBajados.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0)} cajas</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Inventario */}
+          {tab==="inventario"&&(
+            <div>
+              {/* Botones seleccion multiple */}
+              {inventario.length>0&&(
+                <div style={{display:"flex",gap:6,marginBottom:10}}>
+                  {modoSeleccionInv
+                    ? <button onClick={function(){setModalBajaInv(true);}} disabled={seleccionadosInv.length===0} style={{flex:2,padding:"9px",background:seleccionadosInv.length>0?"rgba(239,68,68,0.2)":"rgba(255,255,255,0.04)",border:"1px solid "+(seleccionadosInv.length>0?"rgba(239,68,68,0.5)":"rgba(255,255,255,0.1)"),borderRadius:8,color:seleccionadosInv.length>0?"#ef4444":"#8899aa",fontSize:11,fontWeight:700,cursor:seleccionadosInv.length>0?"pointer":"default",fontFamily:"system-ui"}}>Dar de baja ({seleccionadosInv.length})</button>
+                    : <div style={{flex:2}}/>
+                  }
+                  <button onClick={function(){requerirPin(function(){setModoSeleccionInv(!modoSeleccionInv); setSeleccionadosInv([]);});}} style={{flex:1,padding:"9px",background:modoSeleccionInv?"rgba(245,158,11,0.15)":"rgba(255,255,255,0.05)",border:"1px solid "+(modoSeleccionInv?"rgba(245,158,11,0.4)":"rgba(255,255,255,0.1)"),borderRadius:8,color:modoSeleccionInv?"#f59e0b":"#b0bec5",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>{modoSeleccionInv?"Cancelar":"Seleccionar"}</button>
+                </div>
+              )}
+              {inventario.length===0
+                ? <div style={{textAlign:"center",padding:30,color:"#8899aa",fontSize:12}}>Sin inventario</div>
+                : <InvPorFecha inventario={inventario} diasDesde={diasDesde} DIAS_ALARMA={DIAS_ALARMA} col={col} prod={prod} setModalBaja={setModalBaja} modoSeleccionInv={modoSeleccionInv} seleccionadosInv={seleccionadosInv} setSeleccionadosInv={setSeleccionadosInv}
+                    onBorrar={function(itemId){
+                      requerirPin(function(){
+                        var nd=Object.assign({},datos);
+                        nd[prod]=Object.assign({},datos[prod],{inventario:datos[prod].inventario.filter(function(x){return x.id!==itemId;})});
+                        guardar(nd);
+                      });
+                    }}
+                    onDescontar={function(item){setItemDescontar(item);}}
+                  />
+              }
+            </div>
+          )}
+
+          {/* Pedidos cerrados */}
+          {tab==="cerrados"&&(
+            <div>
+              <PedsCerrados pedidosCerrados={pedidosCerrados} prod={prod} registros={registros} col={col} setPedidosCerrados={setPedidosCerrados} fbSet={fbSet} PED_CERR_KEY={PED_CERR_KEY}/>
+              {(Array.isArray(pedidosCerrados[prod])&&pedidosCerrados[prod].length>0)&&(
+                <button onClick={async function(){
+                  var pc2={}; Object.keys(pedidosCerrados).forEach(function(k){pc2[k]=pedidosCerrados[k];}); pc2[prod]=[];
+                  setPedidosCerrados(pc2); await fbSet(PED_CERR_KEY,pc2);
+                }} style={{width:"100%",padding:"8px",marginTop:8,background:"transparent",border:"1px solid rgba(239,68,68,0.3)",borderRadius:6,color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar pedidos cerrados</button>
+              )}
+            </div>
+          )}
+
+          {/* Modal baja multiple inventario */}
+          {modalBajaInv&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:4}}>Dar de baja - Inventario</div>
+                <div style={{fontSize:11,color:"#b0bec5",marginBottom:12}}>{seleccionadosInv.length} items seleccionados</div>
+                <div style={{marginBottom:8}}>
+                  <div style={lbl}>Motivo</div>
+                  <select style={inp} value={motivoBajaInv} onChange={function(e){setMotivoBajaInv(e.target.value);}}>
+                    <option>Merma</option>
+                    <option>Carga directa</option>
+                    <option>Reproceso</option>
+                  </select>
+                </div>
+                {motivoBajaInv==="Reproceso"&&(
+                  <div style={{marginBottom:8}}>
+                    <div style={lbl}>Nueva presentacion</div>
+                    <select style={inp} value={presentacionReprocesoInv} onChange={function(e){setPresentacionReprocesoInv(e.target.value);}}>
+                      <option value="">-- Seleccionar --</option>
+                      {(modalBaja&&modalBaja.producto==="Persa"?["12x1","8x2"]:["20lb","12x1","8x2","18ct","24ct","36ct","25lb","50lb","12ct","1/9 bushel","11lb","12x2","12x8oz","10lb","15lb"]).map(function(p){return <option key={p}>{p}</option>;})}
+                    </select>
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button onClick={function(){setModalBajaInv(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={function(){darBajaMultipleInventario(prod);}} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal baja multiple */}
+          {modalBajaMulti&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:4}}>Dar de baja</div>
+                <div style={{fontSize:11,color:"#b0bec5",marginBottom:12}}>{seleccionados.length} pallets seleccionados</div>
+                <div style={{marginBottom:8}}>
+                  <div style={lbl}>Motivo</div>
+                  <select style={inp} value={motivoBajaMulti} onChange={function(e){setMotivoBajaMulti(e.target.value);}}>
+                    <option>Merma</option>
+                    <option>Carga directa</option>
+                    <option>Reproceso</option>
+                  </select>
+                </div>
+                {motivoBajaMulti==="Reproceso"&&(
+                  <div style={{marginBottom:8}}>
+                    <div style={lbl}>Nueva presentacion</div>
+                    <select style={inp} value={presentacionReprocesoMulti} onChange={function(e){setPresentacionReprocesoMulti(e.target.value);}}>
+                      <option value="">-- Seleccionar --</option>
+                      {(modalBajaInv&&modalBajaInv.producto==="Persa"?["12x1","8x2"]:["20lb","12x1","8x2","18ct","24ct","36ct","25lb","50lb","12ct","1/9 bushel","11lb","12x2","12x8oz","10lb","15lb"]).map(function(p){return <option key={p}>{p}</option>;})}
+                    </select>
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button onClick={function(){setModalBajaMulti(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={function(){darBajaMultiple(prod);}} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal baja */}
+          {modalBaja&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:12}}>Dar de baja</div>
+                <div style={{marginBottom:8}}>
+                  <div style={lbl}>Motivo</div>
+                  <select style={inp} value={motivoBaja} onChange={function(e){setMotivoBaja(e.target.value);}}>
+                    <option>Reproceso</option>
+                    <option>Merma</option>
+                    <option>Carga directa</option>
+                  </select>
+                </div>
+                {motivoBaja==="Reproceso"&&(
+                  <div style={{marginBottom:8}}>
+                    <div style={lbl}>Nueva presentacion</div>
+                    <select style={inp} value={presentacionReproceso} onChange={function(e){setPresentacionReproceso(e.target.value);}}>
+                      <option value="">-- Seleccionar --</option>
+                      {(FLUJO_PERSA.map(function(x){return x.pct;})).concat(["18ct","24ct","36ct","25lb","50lb","12ct","24ct","1/9 bushel","11lb","12x2","12x1","12x8oz","10lb","15lb","20lb"]).map(function(p){return <option key={p}>{p}</option>;})}
+                    </select>
+                  </div>
+                )}
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button onClick={function(){setModalBaja(null);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={darBaja} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal pedido */}
+          {modalPedido&&formPedido&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid "+col+"44",borderRadius:12,padding:"18px",maxWidth:320,width:"100%"}}>
+                <div style={{fontSize:14,fontWeight:900,color:col,marginBottom:12}}>Pedido activo - {prod}</div>
+                <div style={{marginBottom:6}}>
+                  <div style={lbl}>Cliente</div>
+                  <select style={inp} value={formPedido.cliente} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:e.target.value,calidad:"",subcalidad:"",presentacion:f.presentacion,cajas:f.cajas};});}}>
+                    <option value="">-- Seleccionar --</option>
+                    {clts.map(function(c){return <option key={c}>{c}</option>;})}
+                  </select>
+                </div>
+                <div style={{marginBottom:6}}>
+                  <div style={lbl}>Presentacion</div>
+                  <select style={inp} value={formPedido.presentacion} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:f.cliente,calidad:"",subcalidad:"",presentacion:e.target.value,cajas:f.cajas};});}}>
+                    <option value="">-- Seleccionar --</option>
+                    {(esPersa
+                      ?(function(){
+                          var pcts=FLUJO_PERSA.map(function(x){return x.pct;});
+                          if(formPedido.cliente==="Lakeway")pcts=pcts.concat(["30lb"]);
+                          return pcts;
+                        })()
+                      :(function(){
+                          var pcts=otroPcts.slice();
+                          if(prod==="Slicer"&&formPedido.cliente==="Lakeway"&&pcts.indexOf("62 piezas")<0)pcts=pcts.concat(["62 piezas"]);
+                          return pcts;
+                        })()
+                    ).map(function(p){return <option key={p}>{p}</option>;})}
+                  </select>
+                </div>
+                {/* Calidad segun presentacion seleccionada */}
+                {formPedido.presentacion&&(
+                  <div>
+                    <div style={{marginBottom:6}}>
+                      <div style={lbl}>Calidad</div>
+                      <select style={inp} value={formPedido.calidad} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:f.cliente,calidad:e.target.value,subcalidad:"",presentacion:f.presentacion,cajas:f.cajas};});}}>
+                        <option value="">-- Seleccionar --</option>
+                        {(esPersa
+                          ?(FLUJO_PERSA.filter(function(x){return x.pct===formPedido.presentacion;})[0]||{cals:[]}).cals
+                          :otroCalOpts
+                        ).map(function(c){return <option key={c.cal}>{c.cal}</option>;})}
+                      </select>
+                    </div>
+                    {formPedido.calidad&&(esPersa
+                      ?(((FLUJO_PERSA.filter(function(x){return x.pct===formPedido.presentacion;})[0]||{cals:[]}).cals.filter(function(c){return c.cal===formPedido.calidad;})[0]||{subs:null}).subs||[])
+                      :[]
+                    ).length>0&&(
+                      <div style={{marginBottom:6}}>
+                        <div style={lbl}>Sub-calidad</div>
+                        <select style={inp} value={formPedido.subcalidad||""} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:f.cliente,calidad:f.calidad,subcalidad:e.target.value,presentacion:f.presentacion,cajas:f.cajas};});}}>
+                          <option value="">-- Seleccionar --</option>
+                          {(esPersa
+                            ?(((FLUJO_PERSA.filter(function(x){return x.pct===formPedido.presentacion;})[0]||{cals:[]}).cals.filter(function(c){return c.cal===formPedido.calidad;})[0]||{subs:[]}).subs||[])
+                            :[]
+                          ).map(function(s){return <option key={s}>{s}</option>;})}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{marginBottom:6}}>
+                  <div style={lbl}>Cajas del pedido</div>
+                  <input style={inp} type="number" placeholder="0" value={formPedido.cajas} onChange={function(e){setFormPedido(function(f){return {producto:f.producto,cliente:f.cliente,calidad:f.calidad,subcalidad:f.subcalidad,presentacion:f.presentacion,cajas:e.target.value};});}}/>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={function(){setModalPedido(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={async function(){
+                    var listaActual=Array.isArray(pedidos[prod])?pedidos[prod]:[];
+                    var nuevoPed={id:Date.now(),producto:formPedido.producto,cliente:formPedido.cliente,calidad:formPedido.calidad,subcalidad:formPedido.subcalidad||"",presentacion:formPedido.presentacion,cajas:formPedido.cajas};
+                    var lista=listaActual.concat([nuevoPed]);
+                    var p2={}; Object.keys(pedidos).forEach(function(k){p2[k]=pedidos[k];}); p2[prod]=lista;
+                    setPedidos(p2); await fbSet(PED_KEY,p2);
+                    setFormPedido({producto:prod,cliente:"",calidad:"",subcalidad:"",presentacion:"",cajas:""});
+                  }} style={{flex:1,padding:"8px",background:col+"33",border:"1px solid "+col+"66",borderRadius:6,color:col,fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Guardar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Confirmar cerrar pedido */}
+          {confirmCerrarPed&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%",textAlign:"center"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:8}}>Cerrar pedido</div>
+                <div style={{fontSize:12,color:"#b0bec5",marginBottom:4}}>{confirmCerrarPed.cliente}</div>
+                <div style={{fontSize:11,color:"#8899aa",marginBottom:16}}>{confirmCerrarPed.presentacion} - {confirmCerrarPed.cajas} cajas</div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={function(){setConfirmCerrarPed(null);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={async function(){
+                    // Quitar de activos
+                    var lista=(Array.isArray(pedidos[prod])?pedidos[prod]:[]).filter(function(p){return p.id!==confirmCerrarPed.id;});
+                    var p2={}; Object.keys(pedidos).forEach(function(k){p2[k]=pedidos[k];}); p2[prod]=lista;
+                    setPedidos(p2); await fbSet(PED_KEY,p2);
+                    // Mover a cerrados
+                    var cerrado={};
+                    Object.keys(confirmCerrarPed).forEach(function(k){cerrado[k]=confirmCerrarPed[k];});
+                    cerrado.fechaCierre=hoy();
+                    var listaCerr=(Array.isArray(pedidosCerrados[prod])?pedidosCerrados[prod]:[]).concat([cerrado]);
+                    var pc2={}; Object.keys(pedidosCerrados).forEach(function(k){pc2[k]=pedidosCerrados[k];}); pc2[prod]=listaCerr;
+                    setPedidosCerrados(pc2); await fbSet("pedidos-cerrados-v1",pc2);
+                    setConfirmCerrarPed(null);
+                  }} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Confirmar cerrar dia */}
+          {confirmCerrar&&(
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+              <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.4)",borderRadius:12,padding:"18px",maxWidth:320,width:"100%",textAlign:"center"}}>
+                <div style={{fontSize:14,fontWeight:900,color:"#ffffff",marginBottom:8}}>Cerrar dia - {prod}</div>
+                <div style={{fontSize:12,color:"#b0bec5",marginBottom:16}}>Los registros pasan al inventario y los contadores se ponen en cero.</div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={function(){setConfirmCerrar(false);}} style={{flex:1,padding:"8px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"#b0bec5",fontSize:11,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+                  <button onClick={cerrarDia} style={{flex:1,padding:"8px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:6,color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
+    {modalPin&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.92)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#0f1f14",border:"2px solid rgba(34,197,94,0.4)",borderRadius:16,padding:"28px 24px",maxWidth:300,width:"100%",textAlign:"center"}}>
+          <div style={{fontSize:18,fontWeight:900,color:"#f0ede8",marginBottom:6}}>Acceso de editor</div>
+          <div style={{fontSize:12,color:"#8899aa",marginBottom:20}}>Ingresa el PIN para registrar y modificar</div>
+          <input type="number" value={pinInput} onChange={function(e){setPinInput(e.target.value.slice(0,4));setPinError(false);}} placeholder="0000" style={{width:"100%",background:"rgba(0,0,0,0.5)",border:"2px solid "+(pinError?"#ef4444":"rgba(34,197,94,0.3)"),borderRadius:10,padding:"14px",color:"#22c55e",fontFamily:"monospace",fontSize:32,textAlign:"center",outline:"none",marginBottom:10}}/>
+          {pinError&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8,fontWeight:700}}>PIN incorrecto</div>}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button onClick={function(){setModalPin(false);setAccionPendiente(null);setPinInput("");}} style={{flex:1,padding:"12px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#8899aa",fontSize:13,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+            <button onClick={confirmarPin} style={{flex:1,padding:"12px",background:"rgba(34,197,94,0.2)",border:"1px solid rgba(34,197,94,0.5)",borderRadius:8,color:"#22c55e",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Entrar</button>
+          </div>
+        </div>
+      </div>
+    )}
+    <button onClick={function(){if(!autenticado){setModalPin(true);setPinInput("");setPinError(false);}else{setAutenticado(false);}}} style={{position:"fixed",bottom:16,right:16,zIndex:100,padding:"10px 18px",borderRadius:24,background:autenticado?"#166534":"#1e293b",color:autenticado?"#4ade80":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer",border:"2px solid "+(autenticado?"#22c55e":"#334155"),fontFamily:"system-ui",boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>{autenticado?"Editor":"Lector"}</button>
+      </React.Fragment>
+    );
+  }
+
+  // -- TABLERO PRINCIPAL ------------------------------------------------------
+  if(loading) return <div style={{background:"#0d1a12",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",color:"#22c55e",fontFamily:"monospace",fontSize:14}}>Cargando...</div>;
+
+  var alertasTotal=PRODUCTOS.reduce(function(s,p){
+    var inv=(datos[p]&&datos[p].inventario)||[];
+    return s+inv.filter(function(r){return diasDesde(r.fechaInventario||r.fecha||"")>=DIAS_ALARMA;}).length;
+  },0);
+
+  return (
+    <React.Fragment>
+    <div style={{background:"#0d1a12",minHeight:"100vh",color:"#f0ede8",fontFamily:"system-ui"}}>
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"radial-gradient(135deg, #1a3020 0%, #0d1a12 60%)",zIndex:0,pointerEvents:"none"}}/>
+      <div style={{position:"relative",zIndex:1,maxWidth:900,margin:"0 auto",padding:"14px 12px 60px"}}>
+
+        <div style={{textAlign:"center",marginBottom:16,borderBottom:"1px solid rgba(34,197,94,0.15)",paddingBottom:12}}>
+          <div style={{fontSize:11,color:"#22c55e",textTransform:"uppercase",letterSpacing:4,marginBottom:4}}>Parras Valley</div>
+          <div style={{fontSize:32,fontWeight:900,color:"#ffffff",letterSpacing:2}}>PRODUCCION</div>
+          <div style={{display:"flex",gap:6,justifyContent:"center",marginTop:8}}>
+            {alertasTotal>0&&<div style={{background:"rgba(239,68,68,0.15)",border:"1px solid rgba(239,68,68,0.4)",borderRadius:20,padding:"3px 10px",fontSize:12,color:"#ef4444",fontWeight:700}}>{alertasTotal} alertas inventario</div>}
+            <button onClick={function(){setVistaHist(true);}} style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:20,padding:"3px 10px",color:"#b0bec5",fontSize:12,cursor:"pointer",fontFamily:"system-ui"}}>Historial</button>
+            <button onClick={function(){setVistaAcum(true);}} style={{background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:20,padding:"3px 10px",color:"#a78bfa",fontSize:12,cursor:"pointer",fontFamily:"system-ui"}}>Acumulado</button>
+            <button onClick={cargar} style={{background:"rgba(34,197,94,0.08)",border:"1px solid rgba(34,197,94,0.2)",borderRadius:20,padding:"3px 10px",color:"#22c55e",fontSize:12,cursor:"pointer",fontFamily:"system-ui"}}>Actualizar</button>
+            <button onClick={function(){requerirPin(function(){setConfirmReset(true);});}} style={{background:"rgba(239,68,68,0.08)",border:"1px solid rgba(239,68,68,0.2)",borderRadius:20,padding:"3px 10px",color:"#ef4444",fontSize:12,cursor:"pointer",fontFamily:"system-ui"}}>Reset</button>
+          </div>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:10}}>
+          {PRODUCTOS.map(function(p){
+            var col=COLORES[p]||"#b0bec5";
+            var reg=(datos[p]&&datos[p].registros)||[];
+            var inv=(datos[p]&&datos[p].inventario)||[];
+            var total=reg.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+            var totalInv=inv.reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0);
+            var alertas=inv.filter(function(r){return diasDesde(r.fechaInventario||r.fecha||"")>=DIAS_ALARMA;}).length;
+            var pedProd=Array.isArray(pedidos[p])?pedidos[p]:[];
+            return (
+              <div key={p} onClick={function(){setProd(p); setTab("registro"); setForm(null); setFiltroCliente(""); setFiltroRancho(""); setFiltroMalla("");}}
+                style={{background:"linear-gradient(135deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.2) 100%)",border:"2px solid "+(alertas>0?"rgba(239,68,68,0.6)":col+"44"),borderRadius:14,padding:"14px",cursor:"pointer",position:"relative",overflow:"hidden"}}>
+                {alertas>0&&<div style={{position:"absolute",top:8,right:8,background:"#ef4444",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#fff",fontWeight:700}}>{alertas}</div>}
+                <div style={{fontSize:22,fontWeight:900,color:col,marginBottom:10}}>{p}</div>
+                <div style={{marginBottom:6}}>
+                  <div style={{fontSize:11,color:"#b0bec5",textTransform:"uppercase",letterSpacing:1}}>Empacado hoy</div>
+                  <div style={{fontSize:52,fontWeight:900,color:"#ffffff",fontFamily:"Georgia,serif",lineHeight:1}}>{total}</div>
+                  <div style={{fontSize:13,color:"#b0bec5",letterSpacing:1}}>cajas</div>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
+                  <span style={{color:"#b0bec5"}}>Inventario:</span>
+                  <span style={{color:alertas>0?"#ef4444":col,fontWeight:700}}>{totalInv} cajas</span>
+                </div>
+                {pedProd.length>0&&pedProd[0]&&pedProd[0].cajas&&(
+                  <MiniPedido ped={pedProd[0]} reg={reg} col={col}/>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+      {/* Modal reset */}
+    {confirmReset&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.85)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#0f1a12",border:"2px solid rgba(239,68,68,0.5)",borderRadius:12,padding:"24px",maxWidth:320,width:"100%",textAlign:"center"}}>
+          <div style={{fontSize:16,fontWeight:900,color:"#ffffff",marginBottom:8}}>Borrar todo</div>
+          <div style={{fontSize:13,color:"#b0bec5",marginBottom:20}}>Se borraran todos los registros, inventario, pedidos e historial. Esta accion no se puede deshacer.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={function(){setConfirmReset(false);}} style={{flex:1,padding:"10px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#b0bec5",fontSize:13,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+            <button onClick={async function(){
+              var vacio=initDatos();
+              // 1. Borrar en Firebase - todos los nodos
+              await guardar(vacio);
+              await fbSet(HIST_KEY,[]);
+              await fbSet(PED_KEY,{});
+              await fbSet(PED_CERR_KEY,{});
+              // Borrar nuevo historial prod-hist-v3
+              try{ await fetch(FB_URL+"/prod-hist-v3.json",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(null)}); }catch(e){}
+              // 2. Borrar localStorage - critico para evitar que regrese el historial
+              try{
+                [PROD_KEY,HIST_KEY,PED_KEY,"pedidos-cerrados-v1","prod-hist-v3",PROD_KEY+"_pending"].forEach(function(k){
+                  localStorage.removeItem(k);
+                });
+              }catch(e){}
+              // 3. Limpiar estado en memoria
+              setHistorial([]); setPedidos({}); setPedidosCerrados({});
+              setDatos(vacio);
+              setConfirmReset(false);
+              setHayPendiente(false);
+            }} style={{flex:1,padding:"10px",background:"rgba(239,68,68,0.2)",border:"1px solid rgba(239,68,68,0.5)",borderRadius:8,color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Borrar todo</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Boton Lector/Editor fijo */}
+    <button onClick={function(){if(!autenticado){setModalPin(true);setPinInput("");setPinError(false);}else{setAutenticado(false);}}}
+      style={{position:"fixed",bottom:16,right:16,zIndex:100,padding:"10px 18px",borderRadius:24,background:autenticado?"#166534":"#1e293b",color:autenticado?"#4ade80":"#94a3b8",fontWeight:700,fontSize:13,cursor:"pointer",border:"2px solid "+(autenticado?"#22c55e":"#334155"),fontFamily:"system-ui",boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>
+      {autenticado?"Editor":"Lector"}
+    </button>
+
+    {/* Boton Config fijo */}
+    <button onClick={function(){requerirPin(function(){setModalCfg(true);setCfgProd("Persa");setNuevoClt("");setNuevoPct("");});}}
+      style={{position:"fixed",bottom:16,left:16,zIndex:100,padding:"10px 18px",borderRadius:24,background:"#1a1a2e",color:"#a78bfa",fontWeight:700,fontSize:13,cursor:"pointer",border:"2px solid rgba(167,139,250,0.4)",fontFamily:"system-ui",boxShadow:"0 4px 12px rgba(0,0,0,0.4)"}}>
+      + Config
+    </button>
+
+    {/* MODAL CONFIGURACION */}
+    {modalCfg&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.95)",zIndex:9999,overflowY:"auto",padding:"20px 16px 60px"}}>
+        <div style={{maxWidth:440,margin:"0 auto",background:"#0d0d1a",border:"2px solid rgba(167,139,250,0.4)",borderRadius:16,padding:"20px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+            <div style={{fontSize:16,fontWeight:900,color:"#a78bfa"}}>Clientes y Presentaciones</div>
+            <button onClick={function(){setModalCfg(false);}} style={{padding:"6px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#8899aa",fontFamily:"system-ui",fontSize:12,cursor:"pointer"}}>Cerrar</button>
+          </div>
+
+          {/* Selector de producto */}
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:18}}>
+            {["Persa","Slicer","Europeo","Morron","Minibel"].map(function(p){return(
+              <button key={p} onClick={function(){setCfgProd(p);setNuevoClt("");setNuevoPct("");}}
+                style={{padding:"6px 12px",borderRadius:8,border:"2px solid "+(cfgProd===p?"rgba(167,139,250,0.6)":"rgba(255,255,255,0.08)"),background:cfgProd===p?"rgba(167,139,250,0.15)":"transparent",color:cfgProd===p?"#a78bfa":"#555",fontFamily:"system-ui",fontSize:12,fontWeight:700,cursor:"pointer"}}>{p}</button>
+            );})}
+          </div>
+
+          {/* CLIENTES */}
+          <div style={{marginBottom:20}}>
+            <div style={{fontSize:9,fontWeight:900,letterSpacing:2,color:"rgba(167,139,250,0.6)",marginBottom:8,textTransform:"uppercase"}}>Clientes para todos los productos</div>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              <input type="text" placeholder="Nombre del cliente" value={nuevoClt}
+                onChange={function(e){setNuevoClt(e.target.value);}}
+                onKeyDown={function(e){if(e.key==="Enter"&&nuevoClt.trim()){
+                  var n=nuevoClt.trim();
+                  var extras=(cfg.clientes_extra||[]).slice();
+                  if(extras.indexOf(n)<0){extras.push(n);}
+                  var nc=Object.assign({},cfg,{clientes_extra:extras});
+                  setCfg(nc);fbSet(CFG_KEY,nc);setNuevoClt("");
+                }}}
+                style={{flex:1,background:"rgba(0,0,0,0.4)",border:"2px solid rgba(167,139,250,0.3)",borderRadius:8,padding:"9px 12px",color:"#e8eaf0",fontFamily:"system-ui",fontSize:14,outline:"none"}}/>
+              <button onClick={function(){
+                var n=nuevoClt.trim();if(!n)return;
+                var extras=(cfg.clientes_extra||[]).slice();
+                if(extras.indexOf(n)<0){extras.push(n);}
+                var nc=Object.assign({},cfg,{clientes_extra:extras});
+                setCfg(nc);fbSet(CFG_KEY,nc);setNuevoClt("");
+              }} style={{padding:"9px 16px",background:"rgba(167,139,250,0.2)",border:"2px solid rgba(167,139,250,0.4)",borderRadius:8,color:"#a78bfa",fontFamily:"system-ui",fontSize:14,fontWeight:900,cursor:"pointer"}}>+</button>
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {(cfg.clientes_extra||[]).map(function(c){return(
+                <div key={c} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:20}}>
+                  <span style={{fontSize:12,color:"#a78bfa",fontWeight:700}}>{c}</span>
+                  <button onClick={function(){
+                    var extras=(cfg.clientes_extra||[]).filter(function(x){return x!==c;});
+                    var nc=Object.assign({},cfg,{clientes_extra:extras});
+                    setCfg(nc);fbSet(CFG_KEY,nc);
+                  }} style={{background:"none",border:"none",color:"rgba(239,68,68,0.7)",fontSize:14,cursor:"pointer",fontFamily:"system-ui",padding:"0 2px",lineHeight:1}}>x</button>
+                </div>
+              );})}
+              {(cfg.clientes_extra||[]).length===0&&<div style={{fontSize:11,color:"#333"}}>Sin clientes extra agregados</div>}
+            </div>
+          </div>
+
+          {/* PRESENTACIONES POR PRODUCTO */}
+          <div>
+            <div style={{fontSize:9,fontWeight:900,letterSpacing:2,color:"rgba(167,139,250,0.6)",marginBottom:8,textTransform:"uppercase"}}>Presentaciones extra para {cfgProd}</div>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
+              <input type="text" placeholder="Ej: 40lb, 15ct, 6x1..." value={nuevoPct}
+                onChange={function(e){setNuevoPct(e.target.value);}}
+                onKeyDown={function(e){if(e.key==="Enter"&&nuevoPct.trim()){
+                  var n=nuevoPct.trim();
+                  var pe=Object.assign({},cfg.pcts_extra||{});
+                  var lista=(pe[cfgProd]||[]).slice();
+                  if(lista.indexOf(n)<0){lista.push(n);}
+                  pe[cfgProd]=lista;
+                  var nc=Object.assign({},cfg,{pcts_extra:pe});
+                  setCfg(nc);fbSet(CFG_KEY,nc);setNuevoPct("");
+                }}}
+                style={{flex:1,background:"rgba(0,0,0,0.4)",border:"2px solid rgba(167,139,250,0.3)",borderRadius:8,padding:"9px 12px",color:"#e8eaf0",fontFamily:"system-ui",fontSize:14,outline:"none"}}/>
+              <button onClick={function(){
+                var n=nuevoPct.trim();if(!n)return;
+                var pe=Object.assign({},cfg.pcts_extra||{});
+                var lista=(pe[cfgProd]||[]).slice();
+                if(lista.indexOf(n)<0){lista.push(n);}
+                pe[cfgProd]=lista;
+                var nc=Object.assign({},cfg,{pcts_extra:pe});
+                setCfg(nc);fbSet(CFG_KEY,nc);setNuevoPct("");
+              }} style={{padding:"9px 16px",background:"rgba(167,139,250,0.2)",border:"2px solid rgba(167,139,250,0.4)",borderRadius:8,color:"#a78bfa",fontFamily:"system-ui",fontSize:14,fontWeight:900,cursor:"pointer"}}>+</button>
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {((cfg.pcts_extra&&cfg.pcts_extra[cfgProd])||[]).map(function(p){return(
+                <div key={p} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",background:"rgba(167,139,250,0.1)",border:"1px solid rgba(167,139,250,0.3)",borderRadius:20}}>
+                  <span style={{fontSize:12,color:"#a78bfa",fontWeight:700}}>{p}</span>
+                  <button onClick={function(){
+                    var pe=Object.assign({},cfg.pcts_extra||{});
+                    pe[cfgProd]=(pe[cfgProd]||[]).filter(function(x){return x!==p;});
+                    var nc=Object.assign({},cfg,{pcts_extra:pe});
+                    setCfg(nc);fbSet(CFG_KEY,nc);
+                  }} style={{background:"none",border:"none",color:"rgba(239,68,68,0.7)",fontSize:14,cursor:"pointer",fontFamily:"system-ui",padding:"0 2px",lineHeight:1}}>x</button>
+                </div>
+              );})}
+              {((cfg.pcts_extra&&cfg.pcts_extra[cfgProd])||[]).length===0&&<div style={{fontSize:11,color:"#333"}}>Sin presentaciones extra para {cfgProd}</div>}
+            </div>
+          </div>
+
+          <div style={{marginTop:18,fontSize:9,color:"#333",textAlign:"center"}}>Los cambios se guardan en Firebase y aplican de inmediato en todos los dispositivos</div>
+        </div>
+      </div>
+    )}
+
+    {modalPin&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.92)",zIndex:999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#0f1f14",border:"2px solid rgba(34,197,94,0.4)",borderRadius:16,padding:"28px 24px",maxWidth:300,width:"100%",textAlign:"center"}}>
+          <div style={{fontSize:18,fontWeight:900,color:"#f0ede8",marginBottom:6}}>Acceso de editor</div>
+          <div style={{fontSize:12,color:"#8899aa",marginBottom:20}}>Ingresa el PIN para registrar y modificar</div>
+          <input type="number" value={pinInput} onChange={function(e){setPinInput(e.target.value.slice(0,4));setPinError(false);}} placeholder="0000" style={{width:"100%",background:"rgba(0,0,0,0.5)",border:"2px solid "+(pinError?"#ef4444":"rgba(34,197,94,0.3)"),borderRadius:10,padding:"14px",color:"#22c55e",fontFamily:"monospace",fontSize:32,textAlign:"center",outline:"none",marginBottom:10}}/>
+          {pinError&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8,fontWeight:700}}>PIN incorrecto</div>}
+          <div style={{display:"flex",gap:8,marginTop:10}}>
+            <button onClick={function(){setModalPin(false);setAccionPendiente(null);setPinInput("");}} style={{flex:1,padding:"12px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#8899aa",fontSize:13,cursor:"pointer",fontFamily:"system-ui"}}>Cancelar</button>
+            <button onClick={confirmarPin} style={{flex:1,padding:"12px",background:"rgba(34,197,94,0.2)",border:"1px solid rgba(34,197,94,0.5)",borderRadius:8,color:"#22c55e",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Entrar</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL EDITAR / BORRAR REGISTRO */}
+    {editReg&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.92)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#0a1628",border:"2px solid rgba(96,165,250,0.4)",borderRadius:14,padding:"20px",maxWidth:420,width:"100%",maxHeight:"90vh",overflowY:"auto"}}>
+          {!editAuth?(
+            <div>
+              <div style={{fontSize:15,fontWeight:900,color:"#60a5fa",marginBottom:6}}>{editReg._borrar?"Borrar registro":"Editar registro"}</div>
+              <div style={{fontSize:11,color:"#4a6a7a",marginBottom:16}}>Ingresa el PIN maestro para continuar</div>
+              <input type="password" placeholder="PIN" value={editPin}
+                onChange={function(e){setEditPin(e.target.value);setEditPinErr(false);}}
+                onKeyDown={function(e){if(e.key==="Enter"){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}}}
+                style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"2px solid "+(editPinErr?"rgba(239,68,68,0.5)":"rgba(96,165,250,0.3)"),borderRadius:9,padding:"12px",color:"#fff",fontFamily:"system-ui",fontSize:20,fontWeight:800,textAlign:"center",outline:"none",marginBottom:editPinErr?6:12}}/>
+              {editPinErr&&<div style={{fontSize:11,color:"#ef4444",marginBottom:10,textAlign:"center"}}>PIN incorrecto</div>}
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={function(){setEditReg(null);setEditPin("");setEditPinErr(false);}} style={{flex:1,padding:"11px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:9,color:"#6b7280",fontFamily:"system-ui",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={function(){if(editPin===PIN_PROD){setEditAuth(true);}else{setEditPinErr(true);setEditPin("");}}} style={{flex:2,padding:"11px",background:"rgba(96,165,250,0.15)",border:"2px solid rgba(96,165,250,0.4)",borderRadius:9,color:"#60a5fa",fontFamily:"system-ui",fontSize:14,fontWeight:900,cursor:"pointer"}}>Confirmar PIN</button>
+              </div>
+            </div>
+          ):editReg._borrar?(
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:15,fontWeight:900,color:"#ef4444",marginBottom:8}}>Borrar este registro</div>
+              <div style={{fontSize:12,color:"#6b7280",marginBottom:16}}>{editReg.cajas} cajas . {editReg.cliente} . {editReg.presentacion} . {editReg.calidad}</div>
+              <div style={{display:"flex",gap:10}}>
+                <button onClick={function(){setEditReg(null);setEditAuth(false);}} style={{flex:1,padding:"12px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:9,color:"#6b7280",fontFamily:"system-ui",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={function(){
+                  var prodN=editReg._prod;var regId=editReg.id;
+                  var nd=Object.assign({},datos);
+                  nd[prodN]=Object.assign({},datos[prodN],{registros:datos[prodN].registros.filter(function(x){return x.id!==regId;})});
+                  guardar(nd);setEditReg(null);setEditAuth(false);
+                }} style={{flex:2,padding:"12px",background:"rgba(239,68,68,0.15)",border:"2px solid rgba(239,68,68,0.4)",borderRadius:9,color:"#ef4444",fontFamily:"system-ui",fontSize:14,fontWeight:900,cursor:"pointer"}}>Confirmar borrar</button>
+              </div>
+            </div>
+          ):(
+            <div>
+              <div style={{fontSize:15,fontWeight:900,color:"#60a5fa",marginBottom:14}}>Editar registro</div>
+              {[["fecha","Fecha"],["cliente","Cliente"],["calidad","Calidad"],["subcalidad","Subcalidad"],["presentacion","Presentacion"],["tamano","Tamano"],["rancho","Rancho"],["malla","Malla"],["linea","Linea"],["cajas","Cajas"],["hora","Hora"]].map(function(pair){
+                var campo=pair[0];var lbl2=pair[1];
+                return(
+                  <div key={campo} style={{marginBottom:10}}>
+                    <label style={{display:"block",fontSize:9,fontWeight:800,letterSpacing:1.5,color:"#4a6a7a",marginBottom:4,textTransform:"uppercase"}}>{lbl2}</label>
+                    <input value={editReg[campo]||""} onChange={function(e){var upd=Object.assign({},editReg);upd[campo]=e.target.value;setEditReg(upd);}}
+                      type={campo==="cajas"?"number":campo==="fecha"?"date":campo==="hora"?"time":"text"}
+                      style={{width:"100%",background:"rgba(0,0,0,0.4)",border:"2px solid rgba(96,165,250,0.25)",borderRadius:8,padding:"8px 10px",color:"#e8eaf0",fontFamily:"system-ui",fontSize:14,fontWeight:700,outline:"none"}}/>
+                  </div>
+                );
+              })}
+              <div style={{display:"flex",gap:10,marginTop:14}}>
+                <button onClick={function(){setEditReg(null);setEditAuth(false);}} style={{flex:1,padding:"11px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:9,color:"#6b7280",fontFamily:"system-ui",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={function(){
+                  var prodN=editReg._prod;var updReg=editReg;
+                  var nd=Object.assign({},datos);
+                  nd[prodN]=Object.assign({},datos[prodN],{registros:datos[prodN].registros.map(function(r){return r.id===updReg.id?Object.assign({},r,updReg):r;})});
+                  guardar(nd);setEditReg(null);setEditAuth(false);
+                }} style={{flex:2,padding:"11px",background:"rgba(96,165,250,0.15)",border:"2px solid rgba(96,165,250,0.4)",borderRadius:9,color:"#60a5fa",fontFamily:"system-ui",fontSize:14,fontWeight:900,cursor:"pointer"}}>Guardar cambios</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+    </div>
+    </div>
+
+    {/* MODAL JALAR DEL INVENTARIO AL PEDIDO */}
+    {jalarPed&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.93)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:12,overflowY:"auto"}}>
+        <div style={{background:"#0a1a12",border:"2px solid rgba(74,222,128,0.4)",borderRadius:14,padding:"18px",maxWidth:460,width:"100%",marginTop:20}}>
+          <div style={{fontSize:15,fontWeight:900,color:"#4ade80",marginBottom:4}}>Jalar del inventario</div>
+          <div style={{fontSize:12,color:"#4a6a7a",marginBottom:4}}>Pedido: <span style={{color:"#fff",fontWeight:700}}>{jalarPed.cliente}</span>{jalarPed.presentacion?" . "+jalarPed.presentacion:""} . {jalarPed.cajas} cajas</div>
+          <div style={{fontSize:11,color:"#4a6a7a",marginBottom:14}}>Selecciona los pallets del inventario que ya estan hechos para este pedido:</div>
+          {(inventario||[]).length===0
+            ?<div style={{fontSize:12,color:"#555",marginBottom:14}}>Sin inventario disponible</div>
+            :(inventario||[]).map(function(r){
+              var rSnap=r;
+              var sel=selJalar.indexOf(rSnap.id)>=0;
+              return(
+                <div key={rSnap.id} onClick={function(){
+                  if(sel){setSelJalar(selJalar.filter(function(x){return x!==rSnap.id;}));}
+                  else{setSelJalar(selJalar.concat([rSnap.id]));}
+                }} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",marginBottom:6,background:sel?"rgba(74,222,128,0.1)":"rgba(0,0,0,0.3)",border:"2px solid "+(sel?"rgba(74,222,128,0.5)":"rgba(255,255,255,0.07)"),borderRadius:9,cursor:"pointer"}}>
+                  <div style={{width:20,height:20,borderRadius:5,border:"2px solid "+(sel?"#4ade80":"rgba(255,255,255,0.2)"),background:sel?"#4ade80":"transparent",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    {sel&&<span style={{color:"#000",fontSize:12,fontWeight:900,lineHeight:1}}>v</span>}
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{rSnap.calidad}{rSnap.subcalidad?" / "+rSnap.subcalidad:""}{rSnap.presentacion?" - "+rSnap.presentacion:""}</div>
+                    <div style={{fontSize:11,color:"#8899aa"}}>{rSnap.cliente||"Sin cliente"} . {rSnap.rancho} . M{rSnap.malla} . {rSnap.fechaInventario||rSnap.fecha||""}</div>
+                  </div>
+                  <div style={{fontSize:18,fontWeight:900,color:sel?"#4ade80":"#8899aa",fontFamily:"Georgia,serif"}}>{rSnap.cajas}</div>
+                </div>
+              );
+            })
+          }
+          {selJalar.length>0&&(
+            <div style={{background:"rgba(74,222,128,0.08)",border:"1px solid rgba(74,222,128,0.2)",borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:12,color:"#4ade80",fontWeight:700}}>Seleccionados: {selJalar.length} pallets</span>
+              <span style={{fontSize:12,color:"#4ade80",fontWeight:900}}>{(inventario||[]).filter(function(r){return selJalar.indexOf(r.id)>=0;}).reduce(function(s,r){return s+(parseInt(r.cajas)||0);},0)} cajas</span>
+            </div>
+          )}
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button onClick={function(){setJalarPed(null);setSelJalar([]);}}
+              style={{flex:1,padding:"10px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#6b7280",fontFamily:"system-ui",fontSize:13,fontWeight:700,cursor:"pointer"}}>Cancelar</button>
+            <button disabled={selJalar.length===0} onClick={function(){
+              if(selJalar.length===0)return;
+              requerirPin(function(){
+                var pedSnap=jalarPed;var selSnap=selJalar;
+                var nd=Object.assign({},datos);var pN=prod;
+                var invActual=(nd[pN]&&nd[pN].inventario)||[];
+                var regActual=(nd[pN]&&nd[pN].registros)||[];
+                var jalados=invActual.filter(function(r){return selSnap.indexOf(r.id)>=0;});
+                var nuevoInv=invActual.filter(function(r){return selSnap.indexOf(r.id)<0;});
+                var nuevosRegs=jalados.map(function(r){return Object.assign({},r,{cliente:pedSnap.cliente,presentacion:pedSnap.presentacion||r.presentacion,_jalado:true,_pedidoOrigen:pedSnap.id});});
+                nd[pN]=Object.assign({},nd[pN],{inventario:nuevoInv,registros:regActual.concat(nuevosRegs)});
+                guardar(nd);
+                setJalarPed(null);setSelJalar([]);
+              });
+            }} style={{flex:2,padding:"10px",background:selJalar.length>0?"rgba(74,222,128,0.18)":"rgba(255,255,255,0.03)",border:"2px solid "+(selJalar.length>0?"rgba(74,222,128,0.5)":"rgba(255,255,255,0.08)"),borderRadius:8,color:selJalar.length>0?"#4ade80":"#555",fontFamily:"system-ui",fontSize:13,fontWeight:900,cursor:selJalar.length>0?"pointer":"default"}}>
+              Aplicar al pedido ({selJalar.length} seleccionados)
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* MODAL DESCONTAR INVENTARIO DE PEDIDO */}
+    {itemDescontar&&(
+      <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.92)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#0a1628",border:"2px solid rgba(96,165,250,0.4)",borderRadius:14,padding:"20px",maxWidth:420,width:"100%",maxHeight:"90vh",overflowY:"auto"}}>
+          <div style={{fontSize:15,fontWeight:900,color:"#60a5fa",marginBottom:4}}>Descontar del pedido</div>
+          <div style={{fontSize:12,color:"#4a6a7a",marginBottom:14}}>
+            {itemDescontar.cajas} cajas en inventario . {itemDescontar.rancho} . M{itemDescontar.malla}
+          </div>
+          <div style={{fontSize:11,color:"#8899aa",marginBottom:10}}>Selecciona el pedido activo a descontar:</div>
+          {(pedidosActivos||[]).length===0
+            ?<div style={{fontSize:12,color:"#555",marginBottom:14}}>Sin pedidos activos para este producto</div>
+            :(pedidosActivos||[]).map(function(ped){
+              var cajasPed=parseInt(ped.cajas)||0;
+              return(
+                <div key={ped.id} style={{background:"rgba(0,0,0,0.3)",border:"1px solid rgba(96,165,250,0.2)",borderRadius:9,padding:"10px 12px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{ped.cliente}</div>
+                    <div style={{fontSize:11,color:"#8899aa"}}>{ped.presentacion} . {cajasPed} cajas</div>
+                  </div>
+                  <button onClick={function(){
+                    var iSnap=itemDescontar;var pedSnap=ped;
+                    requerirPin(function(){
+                      // Mover item de inventario a registros con cliente del pedido
+                      var nd=Object.assign({},datos);
+                      var pN=prod;
+                      var invActual=(nd[pN]&&nd[pN].inventario)||[];
+                      var regActual=(nd[pN]&&nd[pN].registros)||[];
+                      // Quitar del inventario
+                      nd[pN]=Object.assign({},nd[pN],{
+                        inventario:invActual.filter(function(x){return x.id!==iSnap.id;}),
+                        registros:regActual.concat([Object.assign({},iSnap,{cliente:pedSnap.cliente,presentacion:pedSnap.presentacion||iSnap.presentacion,_descontadoPedido:pedSnap.id})])
+                      });
+                      guardar(nd);
+                      setItemDescontar(null);
+                    });
+                  }} style={{padding:"7px 14px",background:"rgba(96,165,250,0.15)",border:"2px solid rgba(96,165,250,0.4)",borderRadius:8,color:"#60a5fa",fontFamily:"system-ui",fontSize:12,fontWeight:900,cursor:"pointer"}}>Descontar</button>
+                </div>
+              );
+            })
+          }
+          <button onClick={function(){setItemDescontar(null);}}
+            style={{width:"100%",padding:"10px",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,color:"#6b7280",fontFamily:"system-ui",fontSize:13,fontWeight:700,cursor:"pointer",marginTop:8}}>Cancelar</button>
+        </div>
+      </div>
+    )}
+
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
